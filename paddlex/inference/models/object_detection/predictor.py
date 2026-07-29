@@ -14,6 +14,9 @@
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+import os
+import time
+
 import numpy as np
 from PIL import Image
 
@@ -228,18 +231,31 @@ class DetRunnerPredictor(RunnerPredictor):
                 for every instance of the batch. Keys include 'input_path', 'input_img', 'class_ids', 'scores', and 'label_names'.
         """
         datas = batch_data.instances
+
+        _lat = os.environ.get("HPS_LATENCY_LOG", "0") in ("1", "true", "True")
+        _t0 = time.perf_counter() if _lat else 0.0
+
         # preprocess
         for pre_op in self.pre_ops[:-1]:
             datas = pre_op(datas)
 
+        _t_pre = time.perf_counter() if _lat else 0.0
+
         # use `ToBatch` format batch inputs
         batch_inputs = self.pre_ops[-1](datas)
+
+        _t_tobatch = time.perf_counter() if _lat else 0.0
 
         # do infer
         batch_preds = self.runner(batch_inputs)
 
+        _t_infer = time.perf_counter() if _lat else 0.0
+
         # process a batch of predictions into a list of single image result
         preds_list = self._format_output(batch_preds)
+
+        _t_fmt = time.perf_counter() if _lat else 0.0
+
         # postprocess
         boxes = self.post_op(
             preds_list,
@@ -250,6 +266,25 @@ class DetRunnerPredictor(RunnerPredictor):
             layout_merge_bboxes_mode=layout_merge_bboxes_mode
             or self.layout_merge_bboxes_mode,
         )
+
+        _t_post = time.perf_counter() if _lat else 0.0
+
+        if _lat:
+            print(
+                '{"event":"latency","stage":"det_process",'
+                '"pre_ms":%.3f,"tobatch_ms":%.3f,"infer_ms":%.3f,'
+                '"fmt_ms":%.3f,"post_ms":%.3f,"total_ms":%.3f,"n_imgs":%d}'
+                % (
+                    (_t_pre - _t0) * 1000,
+                    (_t_tobatch - _t_pre) * 1000,
+                    (_t_infer - _t_tobatch) * 1000,
+                    (_t_fmt - _t_infer) * 1000,
+                    (_t_post - _t_fmt) * 1000,
+                    (_t_post - _t0) * 1000,
+                    len(datas),
+                ),
+                flush=True,
+            )
 
         return {
             "input_path": batch_data.input_paths,

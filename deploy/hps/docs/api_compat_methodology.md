@@ -100,14 +100,23 @@ from here — no `os.environ` calls anywhere else.
 | `MAX_IMAGE_DIM` | `HPS_API_MAX_IMAGE_DIM` | `4096` | Resize limit |
 | `DEFAULT_TIMEOUT` | `HPS_API_TIMEOUT` | `30` | HTTP fetch timeout |
 | `STARTUP_TIMEOUT` | `HPS_API_STARTUP_TIMEOUT` | `300` | Model load deadline |
-| `PIPELINE_DEPTH` | `HPS_API_PIPELINE_DEPTH` | `3` | Max concurrent in-flight inference tasks (1 = serial) |
-| `CPU_POOL_SIZE` | `HPS_API_CPU_POOL_SIZE` | `4` | Thread pool size for CPU-bound stages (image decode, export) |
+| `PIPELINE_DEPTH` | `HPS_API_PIPELINE_DEPTH` | `4` | Max concurrent in-flight inference tasks (1 = serial) |
+| `CPU_POOL_SIZE` | `HPS_API_CPU_POOL_SIZE` | `8` | Thread pool size for CPU-bound stages (image decode, export) |
 | `INFERENCE_BACKEND` | `HPS_API_BACKEND` | `triton` | Inference backend: `triton` (continuous batching via Triton) or `direct` (in-process micro-batching) |
-| `BATCH_SIZE` | `HPS_API_BATCH_SIZE` | `1` | Direct-backend only: GPU micro-batch size (1 = no batching, 4 = optimal for PP-DocLayoutV3 TRT profile) |
-| `BATCH_TIMEOUT_MS` | `HPS_API_BATCH_TIMEOUT_MS` | `10` | Direct-backend only: max wait (ms) for batch to fill before flushing partial batch |
+| `BATCH_SIZE` | `HPS_API_BATCH_SIZE` | `2` | Direct-backend only: GPU micro-batch size (1 = no batching, 2 = balanced latency/throughput) |
+| `BATCH_TIMEOUT_MS` | `HPS_API_BATCH_TIMEOUT_MS` | `5` | Direct-backend only: max wait (ms) for batch to fill before flushing partial batch |
 | `TRITON_URL` | `HPS_TRITON_URL` | `localhost:8001` | Triton Inference Server gRPC URL |
 | `TRITON_MODEL_NAME` | `HPS_TRITON_MODEL_NAME` | `doclayout-v3` | Triton model name (in model repository) |
 | `TRITON_REQUEST_TIMEOUT` | `HPS_TRITON_TIMEOUT` | `30` | gRPC request timeout (seconds) |
+
+**TRT runner env vars** (read by `paddlex/inference/models/runners/tensorrt_runner.py`):
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `HPS_TRT_SKIP_D2H_COPY` | `0` | Skip `.copy()` on D2H outputs (return views). Safe for single-threaded direct backend. |
+| `HPS_TRT_SKIP_D2H_OUTPUTS` | (empty) | Skip D2H copy for specified outputs. `auto` = skip any output >10MB. Comma-separated names for explicit list (e.g., `fetch_name_2`). **#13 optimization — skips 96MB masks D2H.** |
+| `HPS_TRT_PINNED` | `1` | Use pinned/page-locked host output buffers for async DMA. Set `0` for fallback/debugging. |
+| `HPS_LATENCY_LOG` | `0` | Enable per-stage JSON timing traces (`trt_runner`, `det_process` events in stdout). |
 
 Logging is configured via `setup_logging()` (called from `lifespan()`) using
 `HPS_API_LOG_LEVEL` (default `INFO`).
@@ -135,7 +144,7 @@ prepare_engine()
 ```
 AppState (singleton)
   ├── model: Any                    # PaddleX model instance
-  ├── semaphore: asyncio.Semaphore(PIPELINE_DEPTH)  # Configurable depth
+  ├── semaphore: asyncio.Semaphore(PIPELINE_DEPTH)  # Configurable depth (default 4)
   ├── _ready: bool                  # Model loaded?
   ├── _load_error: Exception?       # Capture crash from thread
   ├── _task_queue: queue.Queue      # Async → thread communication
@@ -167,7 +176,7 @@ _inference_worker()                 # Thread target (daemon)
         └── finally: _pending.pop(task_id)   # Clean up
 
 run_layout_detection(image)         # ASYNC — called from route handlers
-  ├── async with semaphore:         # Limit in-flight to PIPELINE_DEPTH
+  ├── async with semaphore:         # Limit in-flight to PIPELINE_DEPTH (4)
   │     ├── task_id = uuid4().hex
   │     ├── future = Future()
   │     ├── _pending[task_id] = future  (under lock)
@@ -182,7 +191,7 @@ run_layout_detection(image)         # ASYNC — called from route handlers
 loaded and used in the SAME thread. The task queue bridges async FastAPI →
 sync CUDA thread without context leaks.
 
-**Pipeline depth** (`HPS_API_PIPELINE_DEPTH`, default 3): Controls how many
+**Pipeline depth** (`HPS_API_PIPELINE_DEPTH`, default 4): Controls how many
 requests can be in-flight simultaneously. The inference thread still processes
 one `predict()` at a time (GPU is serial), but the asyncio layer can queue
 multiple tasks. Results are matched by `task_id` via per-task Futures — no
@@ -590,7 +599,7 @@ FastAPI (async)  ──queue──►  Inference Thread (sync CUDA)
 ### 6.2 Why `asyncio.Semaphore(PIPELINE_DEPTH)`?
 
 - Single GPU → inference thread processes one `predict()` at a time (serial GPU)
-- `PIPELINE_DEPTH` (default 3, env: `HPS_API_PIPELINE_DEPTH`) controls how many
+- `PIPELINE_DEPTH` (default 4, env: `HPS_API_PIPELINE_DEPTH`) controls how many
   requests can be **in-flight** simultaneously in the asyncio layer
 - With depth > 1, the inference thread always has work queued — no GPU idle gap
   between requests (request B's task is already on the queue when A finishes)
@@ -601,7 +610,7 @@ FastAPI (async)  ──queue──►  Inference Thread (sync CUDA)
 
 **CPU stage offloading**: CPU-bound work (image decode, DoclingDocument
 conversion, format export) is offloaded to a dedicated thread pool
-(`HPS_API_CPU_POOL_SIZE`, default 4) via `loop.run_in_executor()`. This prevents
+(`HPS_API_CPU_POOL_SIZE`, default 8) via `loop.run_in_executor()`. This prevents
 one request's CPU work from blocking the event loop and stalling all others.
 Export and confidence computation run in parallel via `asyncio.gather()`.
 
@@ -1043,7 +1052,7 @@ breakdown:
 4. `export_formats` — Multi-format export (md, json, html, text, doctags, doclang)
 
 **Instrumented stages in `inference.py:run_layout_detection()`**:
-1. `semaphore_wait` — Time blocked on `asyncio.Semaphore(PIPELINE_DEPTH)`
+1. `semaphore_wait` — Time blocked on `asyncio.Semaphore(PIPELINE_DEPTH=4)`
 2. `gpu_inference` — Time waiting for the per-task Future to resolve
 
 ### 11.3 Usage
@@ -1124,18 +1133,18 @@ client. All tests run **without GPU or PaddleX** (stubbed via `sys.modules`).
 
 ### 12.4 Key Findings
 
-1. **Configurable pipeline depth**: `HPS_API_PIPELINE_DEPTH` (default 3)
+1. **Configurable pipeline depth**: `HPS_API_PIPELINE_DEPTH` (default 4)
    allows multiple requests to be in-flight simultaneously. The inference
    thread still processes one `predict()` at a time (serial GPU), but the
    asyncio layer pipelines task submission. With DEPTH=3 and 50ms inference,
    5 concurrent requests complete in ~100ms (2 batches) vs ~250ms fully serial.
 
-2. **GPU micro-batching**: `HPS_API_BATCH_SIZE` (default 1, recommended 4)
+2. **GPU micro-batching**: `HPS_API_BATCH_SIZE` (default 2, recommended 2-4)
    enables the inference thread to collect up to N images and issue a single
    `predict(images, batch_size=N)` call. The TRT engine for PP-DocLayoutV3 is
    already optimized for batch=4 (opt-profile in `_DEFAULT_LAYOUT_PROFILE`),
    so no engine rebuild is needed. Results are split by position and delivered
-   to each request's `Future`. `BATCH_TIMEOUT_MS` (default 10ms) prevents
+   to each request's `Future`. `BATCH_TIMEOUT_MS` (default 5ms) prevents
    indefinite waiting under low load — a partial batch is flushed after the
    timeout rather than blocking.
 
@@ -1146,7 +1155,7 @@ client. All tests run **without GPU or PaddleX** (stubbed via `sys.modules`).
 
 4. **CPU stage offloading**: Image decode, DoclingDocument conversion, and
    format export run in a dedicated thread pool (`HPS_API_CPU_POOL_SIZE`,
-   default 4), preventing CPU-bound work from blocking the event loop.
+   default 8), preventing CPU-bound work from blocking the event loop.
    Export and confidence computation run in parallel via `asyncio.gather()`.
 
 5. **HTTP layer is NOT the bottleneck**: When the spy bypasses the
@@ -1193,7 +1202,7 @@ count, and latency percentiles under concurrent load.
   gives 5.6× speedup; with 20ms fixed cost, only 2.4× — the more kernel-launch
   overhead, the more batching helps.
 - **Recommended production config**: Use the **Triton backend** (default) with
-  `HPS_API_PIPELINE_DEPTH=3`. Triton's continuous batching automatically
+  `HPS_API_PIPELINE_DEPTH=4`. Triton's continuous batching automatically
   saturates the GPU — no manual batch size tuning needed. The direct backend's
   `HPS_API_BATCH_SIZE=4` gives ~3× throughput but is inferior to Triton's
   continuous batching (which avoids GPU idle gaps between batches).
@@ -1222,7 +1231,8 @@ HPS_API_BACKEND=triton HPS_TRITON_URL=localhost:8001 \
     "api_compat.docling_api.app:app"
 
 # Run with the direct backend (no Triton needed, for development):
-HPS_API_BACKEND=direct HPS_API_BATCH_SIZE=4 HPS_API_BATCH_TIMEOUT_MS=10 \
+HPS_API_BACKEND=direct HPS_API_BATCH_SIZE=2 HPS_API_BATCH_TIMEOUT_MS=5 \
+    HPS_API_PIPELINE_DEPTH=4 HPS_API_CPU_POOL_SIZE=8 \
     granian --interface asgi --port 8080 \
     "api_compat.docling_api.app:app"
 

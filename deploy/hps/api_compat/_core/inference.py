@@ -43,7 +43,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import Future
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -97,9 +97,9 @@ class AppState:
         self.model: Any = None
         self.semaphore: asyncio.Semaphore = asyncio.Semaphore(PIPELINE_DEPTH)
         self._ready = False
-        self._load_error: Optional[Exception] = None
+        self._load_error: Exception | None = None
         # Dedicated inference thread (direct backend only)
-        self._infer_thread: Optional[threading.Thread] = None
+        self._infer_thread: threading.Thread | None = None
         self._task_queue: queue.Queue = queue.Queue()
         # Pending futures keyed by task_id — the inference thread resolves
         # the matching future when it finishes each task.
@@ -161,7 +161,7 @@ class AppState:
             except Exception:
                 pass  # best-effort cleanup
         else:
-            self._task_queue.put((None, None, None))
+            self._task_queue.put((None, None, None, 0.0))
             if self._infer_thread is not None:
                 self._infer_thread.join(timeout=5)
 
@@ -231,12 +231,15 @@ def _inference_worker() -> None:
         if BATCH_SIZE <= 1:
             _process_single(task)
         else:
-            # Collect additional tasks up to BATCH_SIZE with a timeout
+            # Collect additional tasks up to BATCH_SIZE with a timeout.
+            # The timeout is a tradeoff: too long wastes latency at C=1
+            # (waiting for a second task that never comes), too short
+            # misses batching opportunities at C=2-5.  2ms is enough
+            # for concurrent requests to arrive (they're sent within
+            # ~1ms of each other) while limiting C=1 waste to 2ms.
             batch = [task]
-            deadline = None
+            deadline = time.monotonic() + BATCH_TIMEOUT_MS / 1000.0
             while len(batch) < BATCH_SIZE:
-                if deadline is None:
-                    deadline = time.monotonic() + BATCH_TIMEOUT_MS / 1000.0
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -254,7 +257,9 @@ def _inference_worker() -> None:
 
 def _process_single(task: tuple) -> None:
     """Process a single inference task (BATCH_SIZE=1 path)."""
-    task_id, image, future = task
+    task_id, image, future, t_enqueue = task
+    _log = is_latency_logging_enabled()
+    t_start = time.perf_counter() if _log else 0.0
     try:
         gen = state.model.predict(image)
         results = list(gen)
@@ -264,6 +269,15 @@ def _process_single(task: tuple) -> None:
         logger.exception("Inference failed for task %s", task_id)
         future.set_exception(e)
     finally:
+        if _log:
+            elapsed = time.perf_counter() - t_start
+            queue_wait = t_start - t_enqueue
+            logger.info(
+                '{"event":"latency","stage":"batch_inference",'
+                '"batch_size":1,"queue_wait_ms":%.3f,'
+                '"predict_ms":%.3f,"elapsed_s":%.6f}',
+                queue_wait * 1000, elapsed * 1000, elapsed,
+            )
         with state._pending_lock:
             state._pending.pop(task_id, None)
 
@@ -282,6 +296,8 @@ def _process_batch(batch: list[tuple]) -> None:
     _log = is_latency_logging_enabled()
     t0 = time.perf_counter() if _log else 0.0
 
+    # Extract the earliest enqueue time to compute queue wait
+    t_enqueue_min = min(t[3] for t in batch)
     images = [t[1] for t in batch]
 
     try:
@@ -294,24 +310,26 @@ def _process_batch(batch: list[tuple]) -> None:
                 f"{n} images"
             )
 
-        for i, (task_id, _img, future) in enumerate(batch):
+        for i, (_task_id, _img, future, _t) in enumerate(batch):
             boxes = _extract_boxes(results[i])
             future.set_result(boxes)
     except Exception as e:
         logger.exception("Batch inference failed (%d images)", n)
-        for task_id, _img, future in batch:
+        for _task_id, _img, future, _t in batch:
             if not future.done():
                 future.set_exception(e)
     finally:
         if _log:
             elapsed = time.perf_counter() - t0
+            queue_wait = (t0 - t_enqueue_min) * 1000
             logger.info(
                 '{"event":"latency","stage":"batch_inference",'
-                '"batch_size":%d,"elapsed_s":%.6f}',
-                n, elapsed,
+                '"batch_size":%d,"queue_wait_ms":%.3f,'
+                '"predict_ms":%.3f,"elapsed_s":%.6f}',
+                n, queue_wait, elapsed * 1000, elapsed,
             )
         with state._pending_lock:
-            for task_id, _img, _fut in batch:
+            for task_id, _img, _fut, _t in batch:
                 state._pending.pop(task_id, None)
 
 
@@ -335,8 +353,7 @@ async def run_layout_detection(image: np.ndarray) -> list[dict[str, Any]]:
     """
     if INFERENCE_BACKEND == "triton":
         return await _run_triton(image)
-    else:
-        return await _run_direct(image)
+    return await _run_direct(image)
 
 
 async def _run_triton(image: np.ndarray) -> list[dict[str, Any]]:
@@ -406,8 +423,9 @@ async def _run_direct(image: np.ndarray) -> list[dict[str, Any]]:
         with state._pending_lock:
             state._pending[task_id] = future
 
-        t_infer_start = time.perf_counter() if _log else 0.0
-        state._task_queue.put((task_id, image, future))
+        t_enqueue = time.perf_counter()
+        t_infer_start = t_enqueue if _log else 0.0
+        state._task_queue.put((task_id, image, future, t_enqueue))
 
         # Await the future directly via asyncio.wrap_future — this avoids
         # the extra thread hop of run_in_executor(None, future.result),

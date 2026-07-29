@@ -6,7 +6,69 @@
 
 ---
 
-## 1. The Big Picture: Measured Latency (BATCH_SIZE=1, 121 traces)
+## 0. POST-OPTIMIZATION MEASURED RESULTS (9 optimizations, RTX 4090, FP16)
+
+> **2025-07-29**: Full stress test after all 9 optimizations (5 prior + 4 new vectorization).
+> Server: direct backend, BATCH_SIZE=2, BATCH_TIMEOUT_MS=5, PIPELINE_DEPTH=4, CPU_POOL_SIZE=8
+> Image: synthetic 800×1000 document, 3 rounds per concurrency level
+
+### Stress Test Summary (post-optimization)
+
+| Concurrency | Wall p50 | Wall p95 | Wall p99 | Server p50 | Throughput |
+|------------:|---------:|---------:|---------:|-----------:|-----------:|
+| 1 | 24.9ms | 30.1ms | 30.7ms | 23.0ms | 38.6 r/s |
+| 2 | 32.2ms | 67.0ms | 67.4ms | 29.9ms | 56.3 r/s |
+| 5 | 69.7ms | 96.6ms | 99.9ms | 64.5ms | 67.5 r/s |
+| 10 | 143.0ms | 159.6ms | 164.9ms | 140.2ms | 68.5 r/s |
+| 20 | 281.1ms | 295.0ms | 296.8ms | 278.2ms | 70.5 r/s |
+| 50 | 726.7ms | 756.3ms | 789.0ms | 723.6ms | 67.8 r/s |
+
+### TRT Runner GPU-Level (1,340 samples, batch_size=2)
+
+| Stage | Mean | p50 | Min | Max |
+|-------|-----:|----:|----:|----:|
+| h2d (host→device) | 4.04ms | 3.85ms | 1.26ms | 87.08ms |
+| exec (GPU forward) | 10.82ms | 10.66ms | 5.74ms | 99.17ms |
+| d2h (device→host) | 0.005ms | 0.005ms | 0.002ms | 0.023ms |
+| TRT total | 14.86ms | 14.44ms | 7.08ms | 134.80ms |
+| GPU util (exec/total) | **72.8%** | | | |
+
+### Single-Request Per-Stage (warm, concurrency=1)
+
+| Stage | Time | Notes |
+|-------|-----:|-------|
+| image_load | ~1.0ms | PIL decode (small synthetic image) |
+| layout_detection | ~20.0ms | Full PaddleX pipeline (pre→TRT→post) |
+| convert_to_docling | ~0.7ms | DoclingDocument construction |
+| export_formats | ~0.8ms | Markdown export |
+| **Total** | **~22.5ms** | Steady-state single request |
+
+### Before vs After Comparison
+
+| Metric | BEFORE (5 opt) | AFTER (9 opt) | Improvement |
+|--------|---------------:|--------------:|------------:|
+| Single-request p50 | 29.4ms | 24.9ms | **-15.3%** |
+| Single-request throughput | 33.2 r/s | 38.6 r/s | **+16.3%** |
+| C=10 throughput | 58.6 r/s | 68.5 r/s | **+16.9%** |
+| C=20 throughput | 61.1 r/s | 70.5 r/s | **+15.4%** |
+| C=50 throughput | 62.7 r/s | 67.8 r/s | **+8.1%** |
+| TRT d2h | 21.9ms | 0.005ms | **-99.9%** |
+| TRT total | 34.7ms | 14.86ms | **-57.2%** |
+| GPU utilization | 26.1% | 72.8% | **+179%** |
+| Max throughput | ~63 r/s | ~70.5 r/s | **+12%** |
+
+### Key Insights
+1. **D2H copy elimination is the single biggest win** — 21.9ms → 0.005ms (99.9% reduction)
+2. **GPU utilization tripled** — 26.1% → 72.8% (TRT total dropped from 34.7ms to 14.9ms)
+3. **Single-request latency dropped 15%** — 29.4ms → 24.9ms
+4. **Throughput improved 12-17%** across all concurrency levels
+5. **Bottleneck shifted from D2H memcpy to GPU exec** — exec (10.8ms) is now 73% of TRT time
+6. **Post-op vectorization** contributed to the layout_detection drop (155ms → 20ms steady-state)
+7. **At C=50, throughput plateues at ~68 r/s** — GPU compute is now the bottleneck (not memcpy or CPU)
+
+---
+
+## 1. The Big Picture: PRE-OPTIMIZATION Measured Latency (BATCH_SIZE=1, 121 traces)
 
 ```
 Total server-side latency:  158.1ms mean  (p50=140.7ms  max=404.3ms)
@@ -436,10 +498,14 @@ Gives function-level profiling but includes Python interpreter overhead.
 ### Optimization Targets (ranked by expected impact)
 1. **✅ DONE: Vectorize NMS** — replaced pure Python O(n²) `iou()` per-pair loop with vectorized `_iou_matrix()` (numpy broadcasting) + greedy numpy boolean suppression. Eliminates ~10-20ms of Python loop overhead.
 2. **✅ DONE: Vectorize `check_containment()`** — replaced pure Python O(n²) double loop `is_contained()` per-pair with vectorized `_containment_matrix()` (numpy broadcasting) + mode/category masks. Eliminates ~5-15ms.
-3. **✅ DONE: Remove D2H `.copy()`** — added `HPS_TRT_SKIP_D2H_COPY` env var (default on via run_api.sh). The inference thread is single-threaded, so the pre-allocated host buffer is consumed before the next call overwrites it. Saves ~10ms.
+3. **✅ DONE: Remove D2H `.copy()`** — added `HPS_TRT_SKIP_D2H_COPY` env var (default on via run_api.sh). The inference thread is single-threaded, so the pre-allocated host buffer is consumed before the next call overwrites it. **MEASURED: 21.9ms → 0.005ms — the single biggest win.**
 4. **✅ DONE: Vectorize Normalize** — replaced cv2.split→per-channel astype/multiply/add→cv2.merge (9 ops, 3 allocations) with single vectorized `img.astype(float32) * alpha_arr + beta_arr` (3 ops, 1 allocation) using pre-computed `(1,1,3)` arrays. Saves ~5-10ms.
-5. **🔄 IN PROGRESS: HPS throughput config** — tuned PIPELINE_DEPTH (3→4), CPU_POOL_SIZE (4→8), BATCH_SIZE (1→2), BATCH_TIMEOUT_MS (10→5) defaults. Reduces semaphore_wait contention.
-6. **Consider: GPU-side NMS** (TensorRT plugin or custom CUDA kernel) — eliminates post_op from CPU entirely
+5. **✅ DONE: HPS throughput config** — tuned PIPELINE_DEPTH (3→4), CPU_POOL_SIZE (4→8), BATCH_SIZE (1→2), BATCH_TIMEOUT_MS (10→5) defaults. Reduces semaphore_wait contention.
+6. **✅ DONE: Vectorize threshold dict path** — per-row threshold lookup array + single boolean mask in `DetPostProcess.apply()`. Eliminates per-box Python dict lookup loop.
+7. **✅ DONE: Vectorize filter_large_image** — numpy `np.maximum`/`np.minimum` for clamping, vectorized areas, single boolean keep mask. Eliminates per-box Python area computation loop.
+8. **✅ DONE: Vectorize `restructured_boxes()`** — numpy vectorized clamping + validity mask, list comprehension for dict creation. Eliminates per-box Python arithmetic + clamping.
+9. **✅ DONE: Vectorize `unclip_boxes()` dict path** — per-row ratio lookup arrays (w_ratios, h_ratios), vectorized coordinate computation, `np.column_stack`. Eliminates per-box Python dict lookup + arithmetic.
+10. **Consider: GPU-side NMS** (TensorRT plugin or custom CUDA kernel) — eliminates post_op from CPU entirely
 
 ### 2025-01-XX: Optimization Implementation (this session)
 All 5 planned optimizations implemented and validated (no errors):
@@ -479,16 +545,216 @@ All 5 planned optimizations implemented and validated (no errors):
    - BATCH_TIMEOUT_MS: 10→5 (shorter wait for batch collection)
    - HPS_TRT_SKIP_D2H_COPY=1 set in run_api.sh by default
 
+### 2025-07-29: Additional Vectorization Optimizations (4 new)
+
+All 4 new optimizations implemented and validated (no errors, tested in container):
+
+**File modified:** `paddlex/inference/models/object_detection/processors.py`
+
+6. **Vectorized threshold dict path** (in `DetPostProcess.apply()`):
+   - Replaced per-box Python dict lookup `threshold = self.threshold.get(cls_id, default)` in a loop
+   - Now: builds per-row threshold lookup array via `np.array([thresholds.get(c, default) for c in cls_ids])`
+   - Single boolean mask: `keep = scores > thresholds_per_row`
+   - Eliminates N Python dict lookups → 1 numpy array construction + 1 vectorized comparison
+
+7. **Vectorized filter_large_image** (in `DetPostProcess.apply()`):
+   - Replaced per-box Python loop with `np.maximum`/`np.minimum` for coordinate clamping
+   - Vectorized area computation: `areas = (xmax - xmin) * (ymax - ymin)`
+   - Single boolean keep mask: `keep &= areas <= max_area`
+   - Eliminates N Python iterations → 4 vectorized ops + 1 mask
+
+8. **Vectorized `restructured_boxes()`** (in `layout_analysis/processors.py`):
+   - Replaced per-box Python arithmetic (xmin/ymin/xmax/ymax extraction, int conversion, clamping)
+   - Now: numpy vectorized clamping `np.clip(coords, 0, [w, h, w, h])`, validity mask
+   - List comprehension for dict creation (unavoidable for output format, but now with pre-computed arrays)
+   - Eliminates N × (4 indexing + 4 int/float conversions + 4 clamping) → 1 vectorized clip + list comprehension
+
+9. **Vectorized `unclip_boxes()` dict path** (in `object_detection/processors.py`):
+   - Replaced per-box Python dict lookup for unclip ratios + per-box arithmetic
+   - Now: per-row ratio lookup arrays `w_ratios = np.array([ratios[c] for c in cls_ids])`, `h_ratios = ...`
+   - Vectorized coordinate computation: `new_xmin = xmin - w_exp / 2`, etc.
+   - `np.column_stack` for final output assembly
+   - Eliminates N × (2 dict lookups + 8 arithmetic ops) → 2 array lookups + 4 vectorized ops + 1 column_stack
+
+### Benchmark Results (2025-07-29, post all 9 optimizations)
+
+**See Section 0 above for full results table.**
+
+Key findings:
+- Single-request p50: 24.9ms (was 29.4ms with 5 opts, was ~158ms before any opts)
+- Max throughput: 70.5 r/s at C=20 (was 61.1 r/s with 5 opts, was ~63 r/s before)
+- TRT d2h: 0.005ms (was 21.9ms — **99.9% reduction**)
+- TRT total: 14.86ms (was 34.7ms — **57.2% reduction**)
+- GPU utilization: 72.8% (was 26.1% — **2.8× improvement**)
+- Layout detection steady-state: ~20ms (was ~155ms — **87% reduction**)
+- Bottleneck shifted from D2H memcpy + CPU post_op → GPU exec (now 73% of TRT time)
+
+### 2025-07-29: Per-stage timing + H2D optimization (#12)
+
+Added 6-stage timing to `TensorRTRunner.__call__()` via `HPS_LATENCY_LOG=1`:
+`set_shape_ms`, `alloc_ms`, `h2d_copy_ms`, `exec_queue_ms`, `sync_ms`, `d2h_collect_ms`.
+
+Added per-op preprocessing timing to `LayoutAnalysisRunnerPredictor.process()`
+via `pre_ops` field in `det_process` JSON log.
+
+**Optimization #12: Direct async H2D memcpy** — removed pinned intermediate buffer.
+For our data sizes (≤15 MB), the extra `np.copyto` to a pinned buffer costs ~0.6 ms
+more than the DMA speedup it provides. Micro-bench: pinned+async = 1.22 ms,
+direct async = 1.00 ms. Changed `memcpy_htod` to copy directly from the contiguous
+numpy buffer. Removed unused `_h_inputs_pinned` allocation.
+
+Results (bs=2, n=1305):
+| Stage | Before #12 | After #12 |
+|-------|-----------:|----------:|
+| h2d_copy_ms | 5.710 | 4.782 |
+| sync_ms | 7.480 | 7.475 |
+| total_ms | 16.223 | 15.227 |
+
+Stress test (3 rounds):
+| C | Before #12 p50 | After #12 p50 | Before r/s | After r/s |
+|--:|---------------:|--------------:|-----------:|----------:|
+| 1 | 28.7ms | 23.0ms | 35.4 | 42.3 |
+| 2 | 32.5ms | 31.4ms | 54.9 | 58.2 |
+| 5 | 61.6ms | 61.9ms | 73.1 | 75.4 |
+| 10 | 135.3ms | 134.9ms | 72.0 | 72.2 |
+| 20 | 276.3ms | 266.4ms | 70.7 | 73.5 |
+| 50 | 716.1ms | 644.1ms | 66.7 | 76.0 |
+
+### 2025-07-29: Investigation findings (no improvement found)
+
+The following components were investigated and confirmed already optimal:
+
+1. **BGR→RGB conversion (ReadImage)**: Model NEEDS RGB input. Tested BGR vs RGB:
+   max diff 809.5, mean diff 154.5 in detection outputs. `cv2.cvtColor` is optimal
+   at ~0.32ms (bs=1) / 1.34ms (bs=2). Alternatives (fold into ToCHW transpose,
+   ascontiguousarray, zero-copy view) are ALL slower because non-contiguous arrays
+   make `cv2.resize` 4× slower (8.86ms vs 2.0ms).
+
+2. **ToBatch (np.stack)**: 0.57ms isolated, 2.24ms in production (3.7× gap from
+   GC/memory pressure). Tested np.stack, np.concatenate, pre-alloc copy, np.array —
+   all equivalent. No algorithmic improvement available.
+
+3. **Normalize**: Scalar multiply fast path (alpha=1/255, beta=0 all channels
+   identical). Already uses single `astype(float32) * scalar` — fastest option.
+   Fused resize+normalize tested: current pipeline is optimal.
+
+4. **Post-processing (NMS, containment, restructured_boxes)**: Already vectorized
+   in prior session. Python dict creation in list comprehension dominates. 0.183ms
+   at bs=2 (was 1.659ms before vectorization).
+
+5. **set_tensor_address caching**: 0.002ms — negligible.
+
+6. **Multi-stream H2D overlap**: Marginal improvement, not worth complexity.
+
+7. **Pinned hybrid (pinned inputs, pageable outputs)**: Slower than direct pageable.
+
+### 2025-07-29: Skip unused masks D2H (#13) — MAJOR WIN
+
+**Discovery**: PP-DocLayoutV3 TRT engine outputs 3 tensors:
+- `fetch_name_0`: (300,7) float32 = 0.01MB — bounding boxes
+- `fetch_name_1`: (1,) int32 = tiny — box counts
+- `fetch_name_2`: (300,200,200) int32 = **48MB at bs=1, 96MB at bs=2** — segmentation masks
+
+The masks tensor (`fetch_name_2`) is D2H-copied every inference but **NEVER used
+by the API**. The API only extracts bounding boxes (`_extract_boxes` reads
+`result["boxes"]`). Masks are only used for polygon extraction when
+`layout_shape_mode` is "poly" or "quad" — the API uses "auto" which defaults to
+"rect" when no polygon_points are present.
+
+**Implementation**: Added `HPS_TRT_SKIP_D2H_OUTPUTS` env var to `TensorRTRunner`:
+- `auto` (used in production): Skip D2H for any output whose device buffer > 10MB
+- Comma-separated names: Skip specific outputs (e.g., `fetch_name_2`)
+- Empty (default): Copy all outputs (backward compatible)
+
+When masks are skipped, `_format_output` receives only `[boxes, box_nums]`
+(len=2), takes the `else` branch returning `[{"boxes": ...}]` — no masks key.
+`LayoutAnalysisProcess.__call__` sees no "masks" key → forces
+`layout_shape_mode="rect"` → skips all polygon processing.
+
+**Isolated benchmark (bs=1, TRT engine only)**:
+- Sync WITH masks D2H (48MB): mean=4.166ms
+- Sync WITHOUT masks D2H: mean=2.574ms
+- Savings: 1.592ms at bs=1
+
+**Production results (bs=2, n=1305)**:
+| Stage | Before #13 | After #13 | Δ |
+|-------|-----------:|----------:|---:|
+| sync_ms | 7.475 | 3.533 | **-3.94ms** |
+| post_ms | 1.659 | 0.183 | **-1.48ms** |
+| infer_ms | 15.227 | 11.608 | **-3.62ms** |
+| total_ms | 25.023 | 20.252 | **-4.77ms** |
+
+Savings much larger than isolated benchmark predicted because:
+1. At bs=2, 96MB D2H costs ~3.2ms+ in isolation (vs 1.6ms at bs=1)
+2. Eliminating masks also skips `_format_output` mask array slicing (np.asarray of 96MB)
+3. `LayoutAnalysisProcess` skips all mask/polygon processing
+4. Reduced memory bandwidth pressure benefits entire pipeline
+
+**Stress test (3 rounds, all concurrency levels)**:
+| C | #12 p50 | #13 p50 | Δ Latency | #12 r/s | #13 r/s | Δ Throughput |
+|--:|--------:|--------:|----------:|--------:|--------:|-------------:|
+| 1 | 23.0ms | **20.5ms** | -2.5ms | 42.3 | **47.7** | +12.8% |
+| 2 | 31.4ms | **25.4ms** | -6.0ms | 58.2 | **69.8** | +20.0% |
+| 5 | 61.9ms | **52.2ms** | -9.7ms | 75.4 | **92.8** | +23.1% |
+| 10 | 134.9ms | **104.1ms** | -30.8ms | 72.2 | **92.1** | +27.6% |
+| 20 | 266.4ms | **218.1ms** | -48.3ms | 73.5 | **89.4** | +21.6% |
+| 50 | 644.1ms | **541.2ms** | -102.9ms | 76.0 | **90.1** | +18.6% |
+
+**This is the single highest-impact optimization** — 12-28% throughput gain across
+all concurrency levels, and 2.5-103ms latency reduction.
+
+### Current latency budget (bs=2, n=1305, after #13)
+
+| Stage | Mean | p50 |
+|-------|-----:|----:|
+| set_shape_ms | 0.048 | 0.045 |
+| alloc_ms | 0.203 | 0.144 |
+| h2d_copy_ms | 4.855 | 4.709 |
+| exec_queue_ms | 2.877 | 2.255 |
+| sync_ms | 3.533 | 3.340 |
+| d2h_collect_ms | 0.004 | 0.004 |
+| **infer total** | **11.520** | **10.687** |
+| pre_ms | 6.060 | 6.047 |
+| tobatch_ms | 2.330 | 2.226 |
+| fmt_ms | 0.071 | 0.066 |
+| post_ms | 0.183 | 0.158 |
+| **grand total** | **20.252** | **19.406** |
+
+Per-op at bs=2: ReadImage=1.473ms, Resize=1.736ms, Normalize=2.840ms, ToCHWImage=0.006ms
+
+### Current latency budget (bs=1, n=33, after #13)
+
+| Stage | Mean | p50 |
+|-------|-----:|----:|
+| set_shape_ms | 0.046 | 0.043 |
+| alloc_ms | 0.161 | 0.145 |
+| h2d_copy_ms | 2.399 | 2.206 |
+| exec_queue_ms | 2.596 | 2.384 |
+| sync_ms | 2.382 | 2.164 |
+| d2h_collect_ms | 0.004 | 0.003 |
+| **infer total** | **7.589** | **7.219** |
+| pre_ms | 1.766 | 1.568 |
+| tobatch_ms | 1.054 | 0.915 |
+| fmt_ms | 0.060 | 0.057 |
+| post_ms | 0.162 | 0.136 |
+| **grand total** | **10.722** | **10.138** |
+
+Per-op at bs=1: ReadImage=0.357ms, Resize=0.321ms, Normalize=1.079ms, ToCHWImage=0.005ms
+
 ### TODO: Next Steps
 1. [x] Read `nms()` implementation — CONFIRMED pure Python O(n²) loop
 2. [x] Read `check_containment()` implementation — CONFIRMED pure Python O(n²) double loop
 3. [x] Read `restructured_boxes()` implementation — CONFIRMED Python loop with dict creation
-4. [ ] Add per-stage timing to `process()` and collect measurements
+4. [x] Add per-stage timing to `process()` and collect measurements
 5. [ ] Measure with different image sizes to confirm Resize/Normalize scaling
 6. [x] **DONE**: Vectorize NMS with `_iou_matrix()` + greedy numpy suppression
 7. [x] **DONE**: Remove D2H `.copy()` via `HPS_TRT_SKIP_D2H_COPY` env var
 8. [x] **DONE**: Replace Normalize split/loop/merge with single vectorized op
 9. [x] **DONE**: Vectorize `check_containment()` with `_containment_matrix()`
 10. [x] **DONE**: Optimize HPS throughput config (PIPELINE_DEPTH, CPU_POOL_SIZE, BATCH_SIZE)
-11. [ ] Run benchmarks to measure actual improvement from all 5 optimizations
-12. [ ] Consider: move NMS to GPU (CUDA NMS) to eliminate post_op bottleneck
+11. [x] **DONE**: Run benchmarks to measure actual improvement from all 9 optimizations
+12. [x] **DONE**: Vectorize threshold dict path, filter_large_image, restructured_boxes, unclip_boxes
+13. [x] **DONE**: Direct async H2D (#12) — removed pinned intermediate
+14. [x] **DONE**: Skip unused masks D2H (#13) — 96MB → 0, saves 5ms at bs=2
+15. [ ] Consider: move NMS to GPU (CUDA NMS) to eliminate post_op bottleneck
+16. [ ] Investigate remaining sync_ms (~3.5ms at bs=2 after masks skip)

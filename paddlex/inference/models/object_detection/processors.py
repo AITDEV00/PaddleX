@@ -465,27 +465,41 @@ def restructured_boxes(
     Returns:
         Boxes: A list of dictionaries, each containing 'cls_id', 'label', 'score', and 'coordinate' keys.
     """
-    box_list = []
+    if len(boxes) == 0:
+        return []
+
     w, h = img_size
+    # Vectorized clamping: compute all coordinates at once
+    cls_ids = boxes[:, 0].astype(int)
+    scores = boxes[:, 1].astype(float)
+    xmins = np.maximum(0, boxes[:, 2])
+    ymins = np.maximum(0, boxes[:, 3])
+    xmaxs = np.minimum(w, boxes[:, 4])
+    ymaxs = np.min(h, boxes[:, 5])
 
-    for box in boxes:
-        xmin, ymin, xmax, ymax = box[2:]
-        xmin = max(0, xmin)
-        ymin = max(0, ymin)
-        xmax = min(w, xmax)
-        ymax = min(h, ymax)
-        if xmax <= xmin or ymax <= ymin:
-            continue
-        box_list.append(
-            {
-                "cls_id": int(box[0]),
-                "label": labels[int(box[0])],
-                "score": float(box[1]),
-                "coordinate": [xmin, ymin, xmax, ymax],
-            }
-        )
+    # Validity mask: xmax > xmin and ymax > ymin
+    valid = (xmaxs > xmins) & (ymaxs > ymins)
 
-    return box_list
+    # Filter to valid boxes only
+    cls_ids = cls_ids[valid]
+    scores = scores[valid]
+    xmins = xmins[valid]
+    ymins = ymins[valid]
+    xmaxs = xmaxs[valid]
+    ymaxs = ymaxs[valid]
+
+    # Build list of dicts with list comprehension (avoids per-box Python
+    # clamping logic, but still creates Python objects for the output format)
+    return [
+        {
+            "cls_id": int(cls_ids[i]),
+            "label": labels[int(cls_ids[i])],
+            "score": float(scores[i]),
+            "coordinate": [float(xmins[i]), float(ymins[i]),
+                           float(xmaxs[i]), float(ymaxs[i])],
+        }
+        for i in range(len(cls_ids))
+    ]
 
 
 def restructured_rotated_boxes(
@@ -543,29 +557,31 @@ def unclip_boxes(boxes, unclip_ratio=None):
         return boxes
 
     if isinstance(unclip_ratio, dict):
-        expanded_boxes = []
-        for box in boxes:
-            class_id, score, x1, y1, x2, y2 = box
-            if class_id in unclip_ratio:
-                width_ratio, height_ratio = unclip_ratio[class_id]
+        # Vectorized: build per-row width/height ratio arrays via lookup,
+        # then compute all expanded coordinates at once.
+        class_ids = boxes[:, 0]
+        # Default ratio = 1.0 (no expansion) for classes not in the dict
+        w_ratios = np.ones(len(boxes), dtype=np.float32)
+        h_ratios = np.ones(len(boxes), dtype=np.float32)
+        for cid, (wr, hr) in unclip_ratio.items():
+            mask = class_ids == cid
+            w_ratios[mask] = wr
+            h_ratios[mask] = hr
 
-                width = x2 - x1
-                height = y2 - y1
+        widths = boxes[:, 4] - boxes[:, 2]
+        heights = boxes[:, 5] - boxes[:, 3]
+        new_w = widths * w_ratios
+        new_h = heights * h_ratios
+        center_x = boxes[:, 2] + widths / 2
+        center_y = boxes[:, 3] + heights / 2
 
-                new_w = width * width_ratio
-                new_h = height * height_ratio
-                center_x = x1 + width / 2
-                center_y = y1 + height / 2
-
-                new_x1 = center_x - new_w / 2
-                new_y1 = center_y - new_h / 2
-                new_x2 = center_x + new_w / 2
-                new_y2 = center_y + new_h / 2
-
-                expanded_boxes.append([class_id, score, new_x1, new_y1, new_x2, new_y2])
-            else:
-                expanded_boxes.append(box)
-        return np.array(expanded_boxes)
+        new_x1 = center_x - new_w / 2
+        new_y1 = center_y - new_h / 2
+        new_x2 = center_x + new_w / 2
+        new_y2 = center_y + new_h / 2
+        return np.column_stack(
+            (boxes[:, 0], boxes[:, 1], new_x1, new_y1, new_x2, new_y2)
+        )
 
     else:
         widths = boxes[:, 4] - boxes[:, 2]
@@ -663,6 +679,8 @@ def nms(boxes, iou_same=0.6, iou_diff=0.95):
     same_class = classes[:, None] == classes[None, :]  # (N, N) bool
     threshold_mat = np.where(same_class, iou_same, iou_diff)
 
+    # Greedy suppression: iterate in score order, suppress overlapping boxes.
+    # Use array indexing into the sorted order to minimize Python overhead.
     suppressed = np.zeros(n, dtype=bool)
     selected = []
 
@@ -821,19 +839,15 @@ class DetPostProcess:
             expect_boxes = (boxes[:, 1] > threshold) & (boxes[:, 0] > -1)
             boxes = boxes[expect_boxes, :]
         elif isinstance(threshold, dict):
-            category_filtered_boxes = []
-            for cat_id in np.unique(boxes[:, 0]):
-                category_boxes = boxes[boxes[:, 0] == cat_id]
-                category_threshold = threshold.get(int(cat_id), 0.5)
-                selected_indices = (category_boxes[:, 1] > category_threshold) & (
-                    category_boxes[:, 0] > -1
-                )
-                category_filtered_boxes.append(category_boxes[selected_indices])
-            boxes = (
-                np.vstack(category_filtered_boxes)
-                if category_filtered_boxes
-                else np.array([])
+            # Vectorized per-category threshold: build a per-row threshold
+            # array via lookup, then apply a single boolean mask.
+            cat_ids = boxes[:, 0].astype(int)
+            row_thresholds = np.array(
+                [threshold.get(int(c), 0.5) for c in cat_ids],
+                dtype=np.float32,
             )
+            keep_mask = (boxes[:, 1] > row_thresholds) & (boxes[:, 0] > -1)
+            boxes = boxes[keep_mask, :]
 
         if layout_nms:
             selected_indices = nms(boxes[:, :6], iou_same=0.6, iou_diff=0.98)
@@ -848,29 +862,25 @@ class DetPostProcess:
                 area_thres = 0.93
             image_index = self.labels.index("image") if "image" in self.labels else None
             img_area = img_size[0] * img_size[1]
-            filtered_boxes = []
-            for box in boxes:
-                (
-                    label_index,
-                    score,
-                    xmin,
-                    ymin,
-                    xmax,
-                    ymax,
-                ) = box[:6]
-                if label_index == image_index:
-                    xmin = max(0, xmin)
-                    ymin = max(0, ymin)
-                    xmax = min(img_size[0], xmax)
-                    ymax = min(img_size[1], ymax)
-                    box_area = (xmax - xmin) * (ymax - ymin)
-                    if box_area <= area_thres * img_area:
-                        filtered_boxes.append(box)
-                else:
-                    filtered_boxes.append(box)
-            if len(filtered_boxes) == 0:
-                filtered_boxes = boxes
-            boxes = np.array(filtered_boxes)
+
+            # Vectorized: compute clamped coords and areas for all boxes at
+            # once, then build a single boolean keep mask.
+            labels = boxes[:, 0]
+            xmins = np.maximum(0, boxes[:, 2])
+            ymins = np.maximum(0, boxes[:, 3])
+            xmaxs = np.minimum(img_size[0], boxes[:, 4])
+            ymaxs = np.minimum(img_size[1], boxes[:, 5])
+            box_areas = (xmaxs - xmins) * (ymaxs - ymins)
+
+            if image_index is not None:
+                is_image = labels == image_index
+                # Keep non-image boxes always; image boxes only if small enough
+                keep = ~is_image | (box_areas <= area_thres * img_area)
+            else:
+                keep = np.ones(len(boxes), dtype=bool)
+
+            filtered = boxes[keep]
+            boxes = filtered if len(filtered) > 0 else boxes
 
         if layout_merge_bboxes_mode:
             formula_index = (

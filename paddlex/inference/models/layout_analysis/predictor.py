@@ -14,6 +14,8 @@
 
 from typing import Any, List, Optional, Tuple, Union
 
+import os
+import time
 import numpy as np
 from PIL import Image
 
@@ -96,18 +98,35 @@ class LayoutAnalysisRunnerPredictor(DetRunnerPredictor):
                 for every instance of the batch. Keys include 'input_path', 'input_img', 'class_ids', 'scores', and 'label_names'.
         """
         datas = batch_data.instances
+
+        _lat = os.environ.get("HPS_LATENCY_LOG", "0") in ("1", "true", "True")
+        _t0 = time.perf_counter() if _lat else 0.0
+
         # preprocess
+        _pre_timings = [] if _lat else None
         for pre_op in self.pre_ops[:-1]:
+            _t_op0 = time.perf_counter() if _lat else 0.0
             datas = pre_op(datas)
+            if _lat:
+                _pre_timings.append((type(pre_op).__name__, (time.perf_counter() - _t_op0) * 1000))
+
+        _t_pre = time.perf_counter() if _lat else 0.0
 
         # use `ToBatch` format batch inputs
         batch_inputs = self.pre_ops[-1](datas)
 
+        _t_tobatch = time.perf_counter() if _lat else 0.0
+
         # do infer
         batch_preds = self.runner(batch_inputs)
 
+        _t_infer = time.perf_counter() if _lat else 0.0
+
         # process a batch of predictions into a list of single image result
         preds_list = self._format_output(batch_preds)
+
+        _t_fmt = time.perf_counter() if _lat else 0.0
+
         # postprocess
         boxes = self.post_op(
             preds_list,
@@ -121,6 +140,28 @@ class LayoutAnalysisRunnerPredictor(DetRunnerPredictor):
             filter_overlap_boxes=filter_overlap_boxes,
             skip_order_labels=skip_order_labels,
         )
+
+        _t_post = time.perf_counter() if _lat else 0.0
+
+        if _lat:
+            pre_detail = ",".join(f"{name}={val:.3f}" for name, val in _pre_timings)
+            print(
+                '{"event":"latency","stage":"det_process",'
+                '"pre_ms":%.3f,"tobatch_ms":%.3f,"infer_ms":%.3f,'
+                '"fmt_ms":%.3f,"post_ms":%.3f,"total_ms":%.3f,"n_imgs":%d,'
+                '"pre_ops":"%s"}'
+                % (
+                    (_t_pre - _t0) * 1000,
+                    (_t_tobatch - _t_pre) * 1000,
+                    (_t_infer - _t_tobatch) * 1000,
+                    (_t_fmt - _t_infer) * 1000,
+                    (_t_post - _t_fmt) * 1000,
+                    (_t_post - _t0) * 1000,
+                    len(datas),
+                    pre_detail,
+                ),
+                flush=True,
+            )
 
         return {
             "input_path": batch_data.input_paths,

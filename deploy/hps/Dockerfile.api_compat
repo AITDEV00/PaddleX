@@ -88,9 +88,19 @@ RUN --mount=type=cache,target=/tmp/pip-cache \
 #   PATCH: runners/__init__.py          — import TensorRTRunner
 #   PATCH: layout_analysis/__init__.py  — register tensorrt binding
 #   PATCH: utils/deps.py                — is_dep_available("tensorrt") fix
+#   PATCH: object_detection/processors.py — vectorized post-processing
+#   PATCH: common/vision/processors.py  — vectorized Normalize
 COPY paddlex/inference/models/engines/tensorrt.py \
      paddlex/inference/models/runners/tensorrt_runner.py \
      /tmp/paddlex-patch/
+COPY paddlex/inference/models/object_detection/processors.py \
+     /tmp/paddlex-patch/obj_det_processors.py
+COPY paddlex/inference/models/object_detection/predictor.py \
+     /tmp/paddlex-patch/obj_det_predictor.py
+COPY paddlex/inference/models/layout_analysis/predictor.py \
+     /tmp/paddlex-patch/layout_predictor.py
+COPY paddlex/inference/models/common/vision/processors.py \
+     /tmp/paddlex-patch/vision_processors.py
 COPY deploy/hps/scripts/patch_paddlex_trt.py /tmp/patch_paddlex_trt.py
 RUN python3 /tmp/patch_paddlex_trt.py \
         /tmp/paddlex-patch \

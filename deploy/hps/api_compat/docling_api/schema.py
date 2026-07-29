@@ -69,6 +69,14 @@ from docling.datamodel.service.responses import (
     ConvertDocumentErrorResponse,
     ConvertDocumentResponse,
     ExportDocumentResponse,
+    PublicFailureInfo,
+    TaskStatusResponse,
+)
+
+# ─── Service: tasks ───────────────────────────────────────────────────────────
+from docling.datamodel.service.tasks import (
+    TaskProcessingMeta,
+    TaskType,
 )
 
 # ─── Service: sources (coordinate models) ─────────────────────────────────────
@@ -165,6 +173,11 @@ __all__ = [
     "ConvertDocumentErrorResponse",
     "ConvertDocumentResponse",
     "ExportDocumentResponse",
+    "PublicFailureInfo",
+    "TaskStatusResponse",
+    # service tasks
+    "TaskProcessingMeta",
+    "TaskType",
     # docling_core
     "ImageRefMode",
 ]

@@ -229,9 +229,9 @@ def main() -> int:
     from api_compat.docling_api.routes import router
 
     def t_router_routes():
-        assert len(router.routes) >= 5, \
-            f"Expected at least 5 routes, got {len(router.routes)}"
-    test("Router has all 5 convert endpoints registered", t_router_routes)
+        assert len(router.routes) >= 7, \
+            f"Expected at least 7 routes, got {len(router.routes)}"
+    test("Router has all 7 convert endpoints registered", t_router_routes)
 
     # ─── HTTP-level tests (httpx ASGITransport) ───────────────────────
     # These tests send real multipart form data through the FastAPI app,
@@ -1005,26 +1005,114 @@ def main() -> int:
     test("Official client: GET /version → returns JSON dict with version key", t_official_version_endpoint)
 
     # ───────────────────────────────────────────────────────────────────
-    # 16. Async file endpoint returns 501
+    # 16. Async file endpoint returns 200 with TaskStatusResponse
     # ───────────────────────────────────────────────────────────────────
-    def t_official_async_file_501():
-        """The official client uses /v1convert/file/async for async
-        conversion. Our endpoint returns 501 Not Implemented."""
+    def t_official_async_file_200():
+        """The official client uses /v1/convert/file/async for async
+        conversion. Our endpoint accepts the 'files' (plural) field name
+        and returns 200 with a TaskStatusResponse.
+
+        Note: The SDK checks ``status_code != 200`` and raises on any other
+        code, so we must return 200 (not 202) here.
+        The SDK first tries target_type=presigned_url, then falls back to
+        inbody on 422.  We test the inbody path here; the presigned_url
+        rejection is tested in t_official_async_file_presigned_422."""
+        from api_compat.docling_api.service import convert_image
+        from api_compat.docling_api.schema import ConversionStatus
+
+        async def fake_convert(image_data, filename, to_formats):
+            from api_compat.docling_api.schema import (
+                ConvertDocumentResponse, ExportDocumentResponse,
+            )
+            return ConvertDocumentResponse(
+                document=ExportDocumentResponse(filename=filename),
+                status=ConversionStatus.SUCCESS,
+                processing_time=0.01,
+            )
+
         resp = _http_post(
             path="/v1/convert/file/async",
-            data={"to_formats": ["md"]},
-            files={"file": ("t.png", b"fake", "image/png")},
+            data={"to_formats": ["md"], "target_type": "inbody"},
+            files={"files": ("t.png", b"fake", "image/png")},
+            spy_fn=fake_convert,
         )
-        assert resp.status_code == 501, \
-            f"Async file should return 501, got {resp.status_code}"
-    test("Official client: /v1/convert/file/async → 501 Not Implemented", t_official_async_file_501)
+        assert resp.status_code == 200, \
+            f"Async file should return 200, got {resp.status_code}: {resp.text}"
+        body = resp.json()
+        assert "task_id" in body, f"Missing task_id in response: {body}"
+        assert body["task_type"] == "convert"
+        assert body["task_status"] == "success"
+    test("Official client: /v1/convert/file/async → 200 TaskStatusResponse", t_official_async_file_200)
+
+    # 16b. Async file: presigned_url target rejected with 422 (SDK fallback trigger)
+    # ───────────────────────────────────────────────────────────────────
+    def t_official_async_file_presigned_422():
+        """The official SDK first sends target_type=presigned_url.
+        Our server must reject it with 422 whose detail contains
+        'presigned_url' and 'validation error' so the SDK falls back
+        to target_type=inbody.  See ``_should_fallback_from_presigned_target``."""
+        resp = _http_post(
+            path="/v1/convert/file/async",
+            data={"to_formats": ["md"], "target_type": "presigned_url"},
+            files={"files": ("t.png", b"fake", "image/png")},
+        )
+        assert resp.status_code == 422, \
+            f"presigned_url should return 422, got {resp.status_code}"
+        detail = resp.json().get("detail", "")
+        assert "presigned_url" in detail.lower(), \
+            f"Detail should mention presigned_url: {detail}"
+        assert "validation error" in detail.lower(), \
+            f"Detail should mention validation error: {detail}"
+    test("Official client: /v1/convert/file/async presigned_url → 422 (fallback trigger)", t_official_async_file_presigned_422)
 
     # ───────────────────────────────────────────────────────────────────
-    # 17. Async source endpoint returns 501
+    # 17. Async source endpoint returns 200 with TaskStatusResponse
     # ───────────────────────────────────────────────────────────────────
-    def t_official_async_source_501():
+    def t_official_async_source_200():
         """The official client uses /v1/convert/source/async. Our endpoint
-        returns 501 Not Implemented."""
+        accepts the same JSON body as /v1/convert/source and returns 200
+        with a TaskStatusResponse.
+        Uses target=inbody (the SDK fallback path)."""
+        from api_compat.docling_api.service import convert_image
+
+        async def fake_convert(image_data, filename, to_formats):
+            from api_compat.docling_api.schema import (
+                ConversionStatus, ConvertDocumentResponse,
+                ExportDocumentResponse,
+            )
+            return ConvertDocumentResponse(
+                document=ExportDocumentResponse(filename=filename),
+                status=ConversionStatus.SUCCESS,
+                processing_time=0.01,
+            )
+
+        from docling.datamodel.service.requests import (
+            ConvertSourcesRequest, FileSourceRequest,
+        )
+        from docling.datamodel.service.targets import InBodyTarget
+
+        req = ConvertSourcesRequest(
+            sources=[FileSourceRequest(base64_string="dGVzdA==", filename="t.png")],
+            target=InBodyTarget(),
+        )
+        resp = _http_post(
+            path="/v1/convert/source/async",
+            json_body=req.model_dump(mode="json"),
+            spy_fn=fake_convert,
+        )
+        assert resp.status_code == 200, \
+            f"Async source should return 200, got {resp.status_code}: {resp.text}"
+        body = resp.json()
+        assert "task_id" in body, f"Missing task_id in response: {body}"
+        assert body["task_type"] == "convert"
+    test("Official client: /v1/convert/source/async → 200 TaskStatusResponse", t_official_async_source_200)
+
+    # 17b. Async source: presigned_url target rejected with 422 (SDK fallback trigger)
+    # ───────────────────────────────────────────────────────────────────
+    def t_official_async_source_presigned_422():
+        """Same as t_official_async_file_presigned_422 but for the JSON
+        source/async endpoint. The target is in the request body as
+        ``{"kind": "presigned_url"}``."""
         from docling.datamodel.service.requests import (
             ConvertSourcesRequest, FileSourceRequest,
         )
@@ -1032,13 +1120,21 @@ def main() -> int:
         req = ConvertSourcesRequest(
             sources=[FileSourceRequest(base64_string="dGVzdA==", filename="t.png")],
         )
+        # Override target to presigned_url (default is InBodyTarget)
+        body = req.model_dump(mode="json")
+        body["target"] = {"kind": "presigned_url"}
         resp = _http_post(
             path="/v1/convert/source/async",
-            json_body=req.model_dump(mode="json"),
+            json_body=body,
         )
-        assert resp.status_code == 501, \
-            f"Async source should return 501, got {resp.status_code}"
-    test("Official client: /v1/convert/source/async → 501 Not Implemented", t_official_async_source_501)
+        assert resp.status_code == 422, \
+            f"presigned_url source should return 422, got {resp.status_code}"
+        detail = resp.json().get("detail", "")
+        assert "presigned_url" in detail.lower(), \
+            f"Detail should mention presigned_url: {detail}"
+        assert "validation error" in detail.lower(), \
+            f"Detail should mention validation error: {detail}"
+    test("Official client: /v1/convert/source/async presigned_url → 422 (fallback trigger)", t_official_async_source_presigned_422)
 
     # ───────────────────────────────────────────────────────────────────
     # 18. Batch endpoint returns 501
@@ -1063,6 +1159,102 @@ def main() -> int:
         assert resp.status_code == 501, \
             f"Batch should return 501, got {resp.status_code}"
     test("Official client: /v1/convert/source/batch → 501 Not Implemented", t_official_batch_501)
+
+    # ───────────────────────────────────────────────────────────────────
+    # 18b. Async flow: poll task status after submit
+    # ───────────────────────────────────────────────────────────────────
+    def t_official_async_poll_status():
+        """After submitting an async task, the client polls
+        /v1/status/poll/{task_id}. The status should reflect the
+        conversion result (success or failure)."""
+
+        async def fake_convert(image_data, filename, to_formats):
+            from api_compat.docling_api.schema import (
+                ConversionStatus, ConvertDocumentResponse,
+                ExportDocumentResponse,
+            )
+            return ConvertDocumentResponse(
+                document=ExportDocumentResponse(filename=filename),
+                status=ConversionStatus.SUCCESS,
+                processing_time=0.01,
+            )
+
+        submit_resp = _http_post(
+            path="/v1/convert/file/async",
+            data={"to_formats": ["md"], "target_type": "inbody"},
+            files={"files": ("t.png", b"fake", "image/png")},
+            spy_fn=fake_convert,
+        )
+        assert submit_resp.status_code == 200
+        task_id = submit_resp.json()["task_id"]
+
+        poll_resp = _http_get(f"/v1/status/poll/{task_id}")
+        assert poll_resp.status_code == 200, \
+            f"Poll should return 200, got {poll_resp.status_code}"
+        body = poll_resp.json()
+        assert body["task_id"] == task_id
+        assert body["task_status"] == "success"
+    test("Official client: /v1/status/poll/{task_id} → 200 TaskStatusResponse", t_official_async_poll_status)
+
+    # ───────────────────────────────────────────────────────────────────
+    # 18c. Async flow: retrieve task result after submit
+    # ───────────────────────────────────────────────────────────────────
+    def t_official_async_get_result():
+        """After polling shows success, the client fetches the result
+        from /v1/result/{task_id}. The response must be a
+        ConvertDocumentResponse with document data."""
+
+        async def fake_convert(image_data, filename, to_formats):
+            from api_compat.docling_api.schema import (
+                ConversionStatus, ConvertDocumentResponse,
+                ExportDocumentResponse,
+            )
+            return ConvertDocumentResponse(
+                document=ExportDocumentResponse(
+                    filename=filename,
+                    md_content="# Test",
+                ),
+                status=ConversionStatus.SUCCESS,
+                processing_time=0.05,
+            )
+
+        submit_resp = _http_post(
+            path="/v1/convert/file/async",
+            data={"to_formats": ["md"], "target_type": "inbody"},
+            files={"files": ("t.png", b"fake", "image/png")},
+            spy_fn=fake_convert,
+        )
+        assert submit_resp.status_code == 200
+        task_id = submit_resp.json()["task_id"]
+
+        result_resp = _http_get(f"/v1/result/{task_id}")
+        assert result_resp.status_code == 200, \
+            f"Result should return 200, got {result_resp.status_code}"
+        body = result_resp.json()
+        assert body["status"] == "success"
+        assert body["document"]["filename"] == "t.png"
+        assert body["document"]["md_content"] == "# Test"
+    test("Official client: /v1/result/{task_id} → 200 ConvertDocumentResponse", t_official_async_get_result)
+
+    # ───────────────────────────────────────────────────────────────────
+    # 18d. Async flow: poll unknown task returns 404
+    # ───────────────────────────────────────────────────────────────────
+    def t_official_async_poll_unknown_404():
+        """Polling an unknown task_id should return 404."""
+        resp = _http_get("/v1/status/poll/nonexistent-task-id")
+        assert resp.status_code == 404, \
+            f"Unknown task poll should return 404, got {resp.status_code}"
+    test("Official client: /v1/status/poll/{unknown} → 404", t_official_async_poll_unknown_404)
+
+    # ───────────────────────────────────────────────────────────────────
+    # 18e. Async flow: result for unknown task returns 404
+    # ───────────────────────────────────────────────────────────────────
+    def t_official_async_result_unknown_404():
+        """Retrieving result for unknown task_id should return 404."""
+        resp = _http_get("/v1/result/nonexistent-task-id")
+        assert resp.status_code == 404, \
+            f"Unknown task result should return 404, got {resp.status_code}"
+    test("Official client: /v1/result/{unknown} → 404", t_official_async_result_unknown_404)
 
     # ───────────────────────────────────────────────────────────────────
     # 19. Convert source endpoint (JSON body) — file source
@@ -1275,6 +1467,8 @@ def main() -> int:
                 "/v1/convert/file/async",
                 "/v1/convert/source/async",
                 "/v1/convert/source/batch",
+                "/v1/status/poll/{task_id}",
+                "/v1/result/{task_id}",
                 "/health",
                 "/version",
             }
@@ -1282,7 +1476,7 @@ def main() -> int:
             assert not missing, f"Missing routes in OpenAPI: {missing}"
         import asyncio
         asyncio.run(run())
-    test("Official client: OpenAPI schema declares all 7 required routes", t_official_openapi_routes)
+    test("Official client: OpenAPI schema declares all 9 required routes", t_official_openapi_routes)
 
     # ───────────────────────────────────────────────────────────────────
     # 26. Response Content-Type is application/json

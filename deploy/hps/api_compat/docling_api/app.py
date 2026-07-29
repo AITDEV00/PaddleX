@@ -66,11 +66,10 @@ async def lifespan(_app: FastAPI):
             raise RuntimeError(
                 f"Triton server not ready within {STARTUP_TIMEOUT}s"
             )
-    else:
+    elif not state.wait_ready(STARTUP_TIMEOUT):
         # Direct backend: wait for model to load in inference thread
-        if not state.wait_ready(STARTUP_TIMEOUT):
-            state.shutdown()
-            raise RuntimeError(f"Model failed to load within {STARTUP_TIMEOUT}s")
+        state.shutdown()
+        raise RuntimeError(f"Model failed to load within {STARTUP_TIMEOUT}s")
 
     logger.info("Application ready")
     yield

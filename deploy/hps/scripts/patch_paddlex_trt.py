@@ -38,6 +38,38 @@ def main() -> None:
     print(f"Copied {src_engine.name} → {dst_engine}")
     print(f"Copied {src_runner.name} → {dst_runner}")
 
+    # ─── 1b. Copy optimized processors ─────────────────────────────────
+    # Vectorized post-processing (NMS, containment, filter_large_image,
+    # restructured_boxes, unclip_boxes, threshold) and Normalize.
+    src_obj_det = patch_dir / "obj_det_processors.py"
+    src_vision = patch_dir / "vision_processors.py"
+    src_predictor = patch_dir / "obj_det_predictor.py"
+    src_layout_pred = patch_dir / "layout_predictor.py"
+    dst_obj_det = (
+        pdx / "inference" / "models" / "object_detection" / "processors.py"
+    )
+    dst_vision = (
+        pdx / "inference" / "models" / "common" / "vision" / "processors.py"
+    )
+    dst_predictor = (
+        pdx / "inference" / "models" / "object_detection" / "predictor.py"
+    )
+    dst_layout_pred = (
+        pdx / "inference" / "models" / "layout_analysis" / "predictor.py"
+    )
+    if src_obj_det.exists():
+        shutil.copy2(src_obj_det, dst_obj_det)
+        print(f"Copied obj_det_processors.py → {dst_obj_det}")
+    if src_vision.exists():
+        shutil.copy2(src_vision, dst_vision)
+        print(f"Copied vision_processors.py → {dst_vision}")
+    if src_predictor.exists():
+        shutil.copy2(src_predictor, dst_predictor)
+        print(f"Copied obj_det_predictor.py → {dst_predictor}")
+    if src_layout_pred.exists():
+        shutil.copy2(src_layout_pred, dst_layout_pred)
+        print(f"Copied layout_predictor.py → {dst_layout_pred}")
+
     # ─── 2. Patch engines/__init__.py ───────────────────────────────────
     p = pdx / "inference" / "models" / "engines" / "__init__.py"
     s = p.read_text()

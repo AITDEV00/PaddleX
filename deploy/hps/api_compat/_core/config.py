@@ -88,7 +88,7 @@ CPU_POOL_SIZE = int(os.environ.get("HPS_API_CPU_POOL_SIZE", "8"))
 # amortizes kernel launch overhead and improves GPU utilization without
 # adding much latency under load.
 BATCH_SIZE = int(os.environ.get("HPS_API_BATCH_SIZE", "2"))
-BATCH_TIMEOUT_MS = float(os.environ.get("HPS_API_BATCH_TIMEOUT_MS", "5"))
+BATCH_TIMEOUT_MS = float(os.environ.get("HPS_API_BATCH_TIMEOUT_MS", "3"))
 
 # ─── Inference Backend ────────────────────────────────────────────────────────
 # "triton" (default) — Connect to a Triton Inference Server via gRPC.

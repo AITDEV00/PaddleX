@@ -37,35 +37,24 @@ import numpy as np
 from .config import TRITON_MODEL_NAME, TRITON_REQUEST_TIMEOUT, TRITON_URL
 from .latency import is_latency_logging_enabled
 
-# orjson is 3-10x faster than stdlib json for both serialization and
-# deserialization.  It handles numpy types natively when we pass
-# default=_numpy_default.  Falls back to stdlib json if orjson is missing.
+# orjson is 3-10x faster than stdlib json for deserialization.
+# Falls back to stdlib json if orjson is missing.
 try:
     import orjson
 
     def _json_loads(data: bytes):
         return orjson.loads(data)
 
-    def _json_dumps(obj) -> bytes:
-        return orjson.dumps(obj)
-
-    _HAS_ORJSON = True
 except ImportError:
     import json as _stdjson
 
     def _json_loads(data: bytes):
         return _stdjson.loads(data)
 
-    def _json_dumps(obj) -> bytes:
-        return _stdjson.dumps(obj).encode("utf-8")
-
-    _HAS_ORJSON = False
-
 logger = logging.getLogger("hps_api")
 
 # Triton client is optional at import time (tests stub it)
 _triton_client = None
-_triton_client_ready = False
 
 
 def _ensure_client():
@@ -74,7 +63,7 @@ def _ensure_client():
     We can't create it at import time because the Triton server may not
     be running yet during tests.  The client is created on first use.
     """
-    global _triton_client, _triton_client_ready
+    global _triton_client
     if _triton_client is not None:
         return _triton_client
 
@@ -90,7 +79,6 @@ def _ensure_client():
         url=TRITON_URL,
         verbose=False,
     )
-    _triton_client_ready = True
     logger.info("Triton gRPC client created (url=%s)", TRITON_URL)
     return _triton_client
 
@@ -190,9 +178,8 @@ async def detect_layout(image: np.ndarray) -> list[dict[str, Any]]:
 
 async def close_client() -> None:
     """Close the gRPC client on shutdown."""
-    global _triton_client, _triton_client_ready
+    global _triton_client
     if _triton_client is not None:
         await _triton_client.close()
         _triton_client = None
-        _triton_client_ready = False
         logger.info("Triton gRPC client closed")
