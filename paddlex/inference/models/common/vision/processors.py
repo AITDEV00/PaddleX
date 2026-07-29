@@ -253,17 +253,14 @@ class Normalize:
 
         self.alpha = [scale / std[i] for i in range(len(std))]
         self.beta = [-mean[i] / std[i] for i in range(len(std))]
+        # Pre-compute (1,1,3) arrays for vectorized normalization on HWC images.
+        # Normalize runs before ToCHWImage, so images are still in HWC format.
+        self._alpha_arr = np.array(self.alpha, dtype=np.float32).reshape(1, 1, 3)
+        self._beta_arr = np.array(self.beta, dtype=np.float32).reshape(1, 1, 3)
 
     def norm(self, img):
-        split_im = list(cv2.split(img))
-
-        for c in range(img.shape[2]):
-            split_im[c] = split_im[c].astype(np.float32)
-            split_im[c] *= self.alpha[c]
-            split_im[c] += self.beta[c]
-
-        res = cv2.merge(split_im)
-        return res
+        # Vectorized: (img * alpha + beta) in one pass, no split/loop/merge
+        return img.astype(np.float32) * self._alpha_arr + self._beta_arr
 
     def __call__(self, imgs):
         """apply"""

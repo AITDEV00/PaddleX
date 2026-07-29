@@ -1,0 +1,216 @@
+{
+  "image": "book.jpg",
+  "image_size": [
+    1100,
+    708
+  ],
+  "precision": "fp8",
+  "inference_time_s": 0.1101381778717041,
+  "num_detections": 17,
+  "boxes": [
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.931640625,
+      "coordinate": [
+        180.0,
+        0.0,
+        511.0,
+        109.0
+      ],
+      "order": 1
+    },
+    {
+      "label": "paragraph_title",
+      "cls_id": 17,
+      "score": 0.83935546875,
+      "coordinate": [
+        180.0,
+        114.0,
+        310.0,
+        137.0
+      ],
+      "order": 2
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9267578125,
+      "coordinate": [
+        174.0,
+        126.0,
+        505.0,
+        289.0
+      ],
+      "order": 3
+    },
+    {
+      "label": "image",
+      "cls_id": 14,
+      "score": 0.939453125,
+      "coordinate": [
+        179.0,
+        282.0,
+        492.0,
+        472.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "vision_footnote",
+      "cls_id": 24,
+      "score": 0.751953125,
+      "coordinate": [
+        164.0,
+        454.0,
+        494.0,
+        530.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "number",
+      "cls_id": 16,
+      "score": 0.7734375,
+      "coordinate": [
+        301.0,
+        546.0,
+        326.0,
+        563.0
+      ],
+      "order": 4
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9189453125,
+      "coordinate": [
+        552.0,
+        0.0,
+        892.0,
+        85.0
+      ],
+      "order": 5
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.876953125,
+      "coordinate": [
+        573.0,
+        74.0,
+        879.0,
+        128.0
+      ],
+      "order": 6
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.927734375,
+      "coordinate": [
+        550.0,
+        123.0,
+        889.0,
+        219.0
+      ],
+      "order": 7
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.896484375,
+      "coordinate": [
+        550.0,
+        203.0,
+        887.0,
+        253.0
+      ],
+      "order": 8
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.80615234375,
+      "coordinate": [
+        678.0,
+        255.0,
+        768.0,
+        292.0
+      ],
+      "order": 9
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.90966796875,
+      "coordinate": [
+        548.0,
+        300.0,
+        886.0,
+        376.0
+      ],
+      "order": 10
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.81787109375,
+      "coordinate": [
+        685.0,
+        384.0,
+        756.0,
+        417.0
+      ],
+      "order": 11
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.87744140625,
+      "coordinate": [
+        545.0,
+        429.0,
+        884.0,
+        468.0
+      ],
+      "order": 12
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.7548828125,
+      "coordinate": [
+        618.0,
+        478.0,
+        818.0,
+        496.0
+      ],
+      "order": 13
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.81298828125,
+      "coordinate": [
+        544.0,
+        508.0,
+        666.0,
+        530.0
+      ],
+      "order": 14
+    },
+    {
+      "label": "image",
+      "cls_id": 14,
+      "score": 0.791015625,
+      "coordinate": [
+        934.0,
+        0.0,
+        1099.0,
+        658.0
+      ],
+      "order": 0
+    }
+  ]
+}

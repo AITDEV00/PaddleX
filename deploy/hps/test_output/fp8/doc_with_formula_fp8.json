@@ -1,0 +1,480 @@
+{
+  "image": "doc_with_formula.png",
+  "image_size": [
+    816,
+    1056
+  ],
+  "precision": "fp8",
+  "inference_time_s": 0.07817864418029785,
+  "num_detections": 39,
+  "boxes": [
+    {
+      "label": "number",
+      "cls_id": 16,
+      "score": 0.7373046875,
+      "coordinate": [
+        740.0,
+        37.0,
+        752.0,
+        50.0
+      ],
+      "order": 1
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.94384765625,
+      "coordinate": [
+        65.0,
+        96.0,
+        401.0,
+        252.0
+      ],
+      "order": 2
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.85693359375,
+      "coordinate": [
+        124.0,
+        264.0,
+        344.0,
+        282.0
+      ],
+      "order": 3
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.7734375,
+      "coordinate": [
+        381.0,
+        265.0,
+        398.0,
+        281.0
+      ],
+      "order": 4
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.92529296875,
+      "coordinate": [
+        68.0,
+        294.0,
+        400.0,
+        330.0
+      ],
+      "order": 5
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.900390625,
+      "coordinate": [
+        108.0,
+        340.0,
+        361.0,
+        375.0
+      ],
+      "order": 6
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.79541015625,
+      "coordinate": [
+        381.0,
+        349.0,
+        398.0,
+        365.0
+      ],
+      "order": 7
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9130859375,
+      "coordinate": [
+        67.0,
+        386.0,
+        400.0,
+        418.0
+      ],
+      "order": 8
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.89306640625,
+      "coordinate": [
+        80.0,
+        428.0,
+        372.0,
+        467.0
+      ],
+      "order": 9
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.755859375,
+      "coordinate": [
+        382.0,
+        438.0,
+        398.0,
+        454.0
+      ],
+      "order": 10
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.94189453125,
+      "coordinate": [
+        68.0,
+        477.0,
+        401.0,
+        540.0
+      ],
+      "order": 11
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.75537109375,
+      "coordinate": [
+        103.0,
+        550.0,
+        235.0,
+        580.0
+      ],
+      "order": 12
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.80615234375,
+      "coordinate": [
+        382.0,
+        557.0,
+        398.0,
+        572.0
+      ],
+      "order": 13
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.72705078125,
+      "coordinate": [
+        129.0,
+        584.0,
+        364.0,
+        618.0
+      ],
+      "order": 14
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.787109375,
+      "coordinate": [
+        382.0,
+        592.0,
+        398.0,
+        608.0
+      ],
+      "order": 15
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.8486328125,
+      "coordinate": [
+        68.0,
+        628.0,
+        272.0,
+        644.0
+      ],
+      "order": 16
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.96728515625,
+      "coordinate": [
+        66.0,
+        645.0,
+        401.0,
+        920.0
+      ],
+      "order": 17
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.94384765625,
+      "coordinate": [
+        66.0,
+        920.0,
+        401.0,
+        968.0
+      ],
+      "order": 18
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.92431640625,
+      "coordinate": [
+        418.0,
+        71.0,
+        752.0,
+        133.0
+      ],
+      "order": 19
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.9052734375,
+      "coordinate": [
+        460.0,
+        140.0,
+        709.0,
+        177.0
+      ],
+      "order": 20
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.68701171875,
+      "coordinate": [
+        732.0,
+        151.0,
+        750.0,
+        167.0
+      ],
+      "order": 21
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.90673828125,
+      "coordinate": [
+        418.0,
+        186.0,
+        750.0,
+        247.0
+      ],
+      "order": 22
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.85595703125,
+      "coordinate": [
+        431.0,
+        247.0,
+        733.0,
+        264.0
+      ],
+      "order": 23
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.9111328125,
+      "coordinate": [
+        434.0,
+        272.0,
+        710.0,
+        350.0
+      ],
+      "order": 24
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.73828125,
+      "coordinate": [
+        725.0,
+        303.0,
+        750.0,
+        320.0
+      ],
+      "order": 25
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.939453125,
+      "coordinate": [
+        418.0,
+        358.0,
+        752.0,
+        451.0
+      ],
+      "order": 26
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.94140625,
+      "coordinate": [
+        418.0,
+        451.0,
+        752.0,
+        528.0
+      ],
+      "order": 27
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.82861328125,
+      "coordinate": [
+        506.0,
+        539.0,
+        664.0,
+        556.0
+      ],
+      "order": 28
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.8095703125,
+      "coordinate": [
+        724.0,
+        540.0,
+        750.0,
+        556.0
+      ],
+      "order": 29
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9111328125,
+      "coordinate": [
+        419.0,
+        567.0,
+        752.0,
+        614.0
+      ],
+      "order": 30
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.89794921875,
+      "coordinate": [
+        482.0,
+        624.0,
+        688.0,
+        662.0
+      ],
+      "order": 31
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.79248046875,
+      "coordinate": [
+        724.0,
+        637.0,
+        749.0,
+        654.0
+      ],
+      "order": 32
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9033203125,
+      "coordinate": [
+        418.0,
+        672.0,
+        750.0,
+        704.0
+      ],
+      "order": 33
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.87109375,
+      "coordinate": [
+        452.0,
+        712.0,
+        695.0,
+        748.0
+      ],
+      "order": 34
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.7314453125,
+      "coordinate": [
+        725.0,
+        722.0,
+        748.0,
+        739.0
+      ],
+      "order": 35
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.822265625,
+      "coordinate": [
+        419.0,
+        758.0,
+        638.0,
+        774.0
+      ],
+      "order": 36
+    },
+    {
+      "label": "display_formula",
+      "cls_id": 5,
+      "score": 0.87255859375,
+      "coordinate": [
+        434.0,
+        782.0,
+        734.0,
+        863.0
+      ],
+      "order": 37
+    },
+    {
+      "label": "formula_number",
+      "cls_id": 11,
+      "score": 0.74072265625,
+      "coordinate": [
+        725.0,
+        862.0,
+        749.0,
+        878.0
+      ],
+      "order": 38
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9404296875,
+      "coordinate": [
+        418.0,
+        888.0,
+        752.0,
+        968.0
+      ],
+      "order": 39
+    }
+  ]
+}

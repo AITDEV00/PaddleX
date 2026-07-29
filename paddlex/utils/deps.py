@@ -109,6 +109,10 @@ def is_dep_available(dep, /, check_version=False):
         return importlib.util.find_spec("fastdeploy") is not None
     elif dep == "onnxruntime":
         return importlib.util.find_spec("onnxruntime") is not None
+    elif dep == "tensorrt":
+        return importlib.util.find_spec("tensorrt") is not None
+    elif dep == "pycuda":
+        return importlib.util.find_spec("pycuda") is not None
     version = get_dep_version(dep)
     if version is None:
         return False

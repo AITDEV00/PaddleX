@@ -9,7 +9,7 @@ use_formula_recognition: False
 SubModules:
   LayoutDetection:
     module_name: layout_detection
-    model_name: RT-DETR-H_layout_17cls
+    model_name: PP-DocLayoutV3
     model_dir: null
 
 SubPipelines:

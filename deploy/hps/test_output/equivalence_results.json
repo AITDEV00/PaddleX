@@ -1,0 +1,1372 @@
+[
+  {
+    "comparison": "paddle vs tensorrt-fp16",
+    "results": [
+      {
+        "image": "book.jpg",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp16",
+        "n_ref_boxes": 18,
+        "n_cmp_boxes": 18,
+        "n_matched": 18,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9913,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.001435,
+        "max_score_delta": 0.008471,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": -3.3e-05,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "paragraph_title",
+            "cmp_label": "paragraph_title",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.00019,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9879,
+            "label_match": true,
+            "score_delta": -2.6e-05,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "image",
+            "cmp_label": "image",
+            "iou": 0.9968,
+            "label_match": true,
+            "score_delta": 0.000304,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "vision_footnote",
+            "cmp_label": "vision_footnote",
+            "iou": 0.9839,
+            "label_match": true,
+            "score_delta": -0.001425,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.002452,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9971,
+            "label_match": true,
+            "score_delta": 0.000903,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9967,
+            "label_match": true,
+            "score_delta": 0.003016,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.00118,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9971,
+            "label_match": true,
+            "score_delta": 0.000594,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9783,
+            "label_match": true,
+            "score_delta": 0.001999,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000408,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9697,
+            "label_match": true,
+            "score_delta": 6.5e-05,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000732,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.001951,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9471,
+            "label_match": true,
+            "score_delta": -0.000144,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.008471,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "image",
+            "cmp_label": "image",
+            "iou": 0.9923,
+            "label_match": true,
+            "score_delta": 0.001939,
+            "coord_delta_px": 1.0
+          }
+        ]
+      },
+      {
+        "image": "doc_with_formula.png",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp16",
+        "n_ref_boxes": 39,
+        "n_cmp_boxes": 39,
+        "n_matched": 39,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9721,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.000685,
+        "max_score_delta": 0.003271,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000302,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -4.8e-05,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000975,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.8824,
+            "label_match": true,
+            "score_delta": -0.001898,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000487,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9961,
+            "label_match": true,
+            "score_delta": -0.000787,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000583,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": -0.000656,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.975,
+            "label_match": true,
+            "score_delta": -0.000514,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9412,
+            "label_match": true,
+            "score_delta": 0.000469,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": -0.000222,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9677,
+            "label_match": true,
+            "score_delta": -0.003271,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.8824,
+            "label_match": true,
+            "score_delta": 0.000482,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.003035,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9375,
+            "label_match": true,
+            "score_delta": 0.000524,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.8783,
+            "label_match": true,
+            "score_delta": 0.00045,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9928,
+            "label_match": true,
+            "score_delta": 0.000135,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -3.1e-05,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000108,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000262,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9412,
+            "label_match": true,
+            "score_delta": 0.001582,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9836,
+            "label_match": true,
+            "score_delta": -0.000622,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9967,
+            "label_match": true,
+            "score_delta": -0.000535,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -4.5e-05,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9035,
+            "label_match": true,
+            "score_delta": 0.00056,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9834,
+            "label_match": true,
+            "score_delta": 0.000229,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000274,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9444,
+            "label_match": true,
+            "score_delta": -0.000345,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000506,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9787,
+            "label_match": true,
+            "score_delta": -0.000174,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.002076,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9035,
+            "label_match": true,
+            "score_delta": 0.001466,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000691,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9722,
+            "label_match": true,
+            "score_delta": 0.000202,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9042,
+            "label_match": true,
+            "score_delta": -0.000404,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000205,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000417,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.96,
+            "label_match": true,
+            "score_delta": -0.000703,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.994,
+            "label_match": true,
+            "score_delta": 0.000442,
+            "coord_delta_px": 1.0
+          }
+        ]
+      },
+      {
+        "image": "embedded-images-tables.jpg",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp16",
+        "n_ref_boxes": 9,
+        "n_cmp_boxes": 9,
+        "n_matched": 9,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9848,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.000643,
+        "max_score_delta": 0.00156,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 0.9545,
+            "label_match": true,
+            "score_delta": -0.000674,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "header",
+            "cmp_label": "header",
+            "iou": 0.9979,
+            "label_match": true,
+            "score_delta": 0.000134,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "chart",
+            "cmp_label": "chart",
+            "iou": 0.9985,
+            "label_match": true,
+            "score_delta": -5.3e-05,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.9634,
+            "label_match": true,
+            "score_delta": 0.00096,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.999,
+            "label_match": true,
+            "score_delta": -0.00156,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "table",
+            "cmp_label": "table",
+            "iou": 0.9958,
+            "label_match": true,
+            "score_delta": -0.000814,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9951,
+            "label_match": true,
+            "score_delta": -2.6e-05,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "chart",
+            "cmp_label": "chart",
+            "iou": 0.9985,
+            "label_match": true,
+            "score_delta": -0.000779,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.9604,
+            "label_match": true,
+            "score_delta": -0.00079,
+            "coord_delta_px": 1.0
+          }
+        ]
+      },
+      {
+        "image": "layout-parser-paper-with-table.jpg",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp16",
+        "n_ref_boxes": 10,
+        "n_cmp_boxes": 10,
+        "n_matched": 10,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9789,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.000574,
+        "max_score_delta": 0.001382,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "header",
+            "cmp_label": "header",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.001048,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 0.9167,
+            "label_match": true,
+            "score_delta": -0.001382,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000302,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "table",
+            "cmp_label": "table",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000565,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "vision_footnote",
+            "cmp_label": "vision_footnote",
+            "iou": 0.9978,
+            "label_match": true,
+            "score_delta": -0.000473,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.000258,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "paragraph_title",
+            "cmp_label": "paragraph_title",
+            "iou": 0.875,
+            "label_match": true,
+            "score_delta": -0.00045,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -6e-06,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "algorithm",
+            "cmp_label": "algorithm",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.001031,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.000223,
+            "coord_delta_px": 0.0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "comparison": "paddle vs tensorrt-fp8",
+    "results": [
+      {
+        "image": "book.jpg",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp8",
+        "n_ref_boxes": 18,
+        "n_cmp_boxes": 17,
+        "n_matched": 17,
+        "n_unmatched_ref": 1,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9874,
+        "max_coord_delta_px": 11.0,
+        "mean_score_delta": 0.012911,
+        "max_score_delta": 0.064901,
+        "status": "DIFFERS",
+        "matches": [
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": 0.009245,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "paragraph_title",
+            "cmp_label": "paragraph_title",
+            "iou": 0.9583,
+            "label_match": true,
+            "score_delta": -0.006537,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": 0.004857,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "image",
+            "cmp_label": "image",
+            "iou": 0.9916,
+            "label_match": true,
+            "score_delta": -0.005556,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "vision_footnote",
+            "cmp_label": "vision_footnote",
+            "iou": 0.9711,
+            "label_match": true,
+            "score_delta": -0.064901,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.011241,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.005297,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9967,
+            "label_match": true,
+            "score_delta": -0.000402,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.002645,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": 0.004989,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9783,
+            "label_match": true,
+            "score_delta": 0.006393,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9971,
+            "label_match": true,
+            "score_delta": -0.004802,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.032162,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.003174,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.995,
+            "label_match": true,
+            "score_delta": 0.030276,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9471,
+            "label_match": true,
+            "score_delta": -0.010886,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "number",
+            "cmp_label": null,
+            "iou": 0.0,
+            "label_match": false,
+            "score_delta": 0.0,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "image",
+            "cmp_label": "image",
+            "iou": 0.9594,
+            "label_match": true,
+            "score_delta": -0.016127,
+            "coord_delta_px": 11.0
+          }
+        ]
+      },
+      {
+        "image": "doc_with_formula.png",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp8",
+        "n_ref_boxes": 39,
+        "n_cmp_boxes": 39,
+        "n_matched": 39,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9721,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.015239,
+        "max_score_delta": 0.107527,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.02081,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.003466,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.012205,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.032659,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": 0.00879,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9961,
+            "label_match": true,
+            "score_delta": -0.011529,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.009671,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": 0.012527,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.975,
+            "label_match": true,
+            "score_delta": -0.015651,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9412,
+            "label_match": true,
+            "score_delta": -0.024434,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.997,
+            "label_match": true,
+            "score_delta": 0.004173,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9677,
+            "label_match": true,
+            "score_delta": -0.07456,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.8824,
+            "label_match": true,
+            "score_delta": -0.004889,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.107527,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9375,
+            "label_match": true,
+            "score_delta": -0.007288,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.8824,
+            "label_match": true,
+            "score_delta": 0.010703,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9964,
+            "label_match": true,
+            "score_delta": 0.002088,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9792,
+            "label_match": true,
+            "score_delta": 0.000457,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.981,
+            "label_match": true,
+            "score_delta": -0.000381,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.973,
+            "label_match": true,
+            "score_delta": -0.014875,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9444,
+            "label_match": true,
+            "score_delta": -0.001348,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9806,
+            "label_match": true,
+            "score_delta": 0.000354,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.006882,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.015181,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9035,
+            "label_match": true,
+            "score_delta": -0.009694,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9834,
+            "label_match": true,
+            "score_delta": 0.001694,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.001191,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9444,
+            "label_match": true,
+            "score_delta": -0.029154,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.007795,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9787,
+            "label_match": true,
+            "score_delta": -0.005057,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.004517,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9035,
+            "label_match": true,
+            "score_delta": 0.039552,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.994,
+            "label_match": true,
+            "score_delta": 0.006145,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9722,
+            "label_match": true,
+            "score_delta": -0.023235,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9042,
+            "label_match": true,
+            "score_delta": -0.016517,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9955,
+            "label_match": true,
+            "score_delta": -0.002159,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "display_formula",
+            "cmp_label": "display_formula",
+            "iou": 0.9845,
+            "label_match": true,
+            "score_delta": -0.02595,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "formula_number",
+            "cmp_label": "formula_number",
+            "iou": 0.9375,
+            "label_match": true,
+            "score_delta": -0.016816,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9816,
+            "label_match": true,
+            "score_delta": 0.002395,
+            "coord_delta_px": 1.0
+          }
+        ]
+      },
+      {
+        "image": "embedded-images-tables.jpg",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp8",
+        "n_ref_boxes": 9,
+        "n_cmp_boxes": 9,
+        "n_matched": 9,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9836,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.010486,
+        "max_score_delta": 0.022478,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.011417,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "header",
+            "cmp_label": "header",
+            "iou": 0.9979,
+            "label_match": true,
+            "score_delta": -0.005237,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "chart",
+            "cmp_label": "chart",
+            "iou": 0.9978,
+            "label_match": true,
+            "score_delta": -0.003959,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.9286,
+            "label_match": true,
+            "score_delta": -0.022478,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.9792,
+            "label_match": true,
+            "score_delta": -0.004978,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "table",
+            "cmp_label": "table",
+            "iou": 0.9907,
+            "label_match": true,
+            "score_delta": -0.015462,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9951,
+            "label_match": true,
+            "score_delta": 0.000951,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "chart",
+            "cmp_label": "chart",
+            "iou": 0.9985,
+            "label_match": true,
+            "score_delta": -0.008591,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.9643,
+            "label_match": true,
+            "score_delta": -0.021298,
+            "coord_delta_px": 1.0
+          }
+        ]
+      },
+      {
+        "image": "layout-parser-paper-with-table.jpg",
+        "ref_engine": "paddle (original)",
+        "cmp_engine": "tensorrt-fp8",
+        "n_ref_boxes": 10,
+        "n_cmp_boxes": 10,
+        "n_matched": 10,
+        "n_unmatched_ref": 0,
+        "n_unmatched_cmp": 0,
+        "n_label_mismatches": 0,
+        "mean_iou": 0.9688,
+        "max_coord_delta_px": 1.0,
+        "mean_score_delta": 0.008858,
+        "max_score_delta": 0.01754,
+        "status": "EQUIVALENT",
+        "matches": [
+          {
+            "ref_label": "header",
+            "cmp_label": "header",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": 0.004323,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "number",
+            "cmp_label": "number",
+            "iou": 0.825,
+            "label_match": true,
+            "score_delta": 0.016684,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "figure_title",
+            "cmp_label": "figure_title",
+            "iou": 0.9976,
+            "label_match": true,
+            "score_delta": -0.012509,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "table",
+            "cmp_label": "table",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.012619,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "vision_footnote",
+            "cmp_label": "vision_footnote",
+            "iou": 0.9978,
+            "label_match": true,
+            "score_delta": -0.011704,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.003649,
+            "coord_delta_px": 0.0
+          },
+          {
+            "ref_label": "paragraph_title",
+            "cmp_label": "paragraph_title",
+            "iou": 0.875,
+            "label_match": true,
+            "score_delta": -0.01754,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 0.9978,
+            "label_match": true,
+            "score_delta": 0.0039,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "algorithm",
+            "cmp_label": "algorithm",
+            "iou": 0.9949,
+            "label_match": true,
+            "score_delta": -0.002495,
+            "coord_delta_px": 1.0
+          },
+          {
+            "ref_label": "text",
+            "cmp_label": "text",
+            "iou": 1.0,
+            "label_match": true,
+            "score_delta": -0.003153,
+            "coord_delta_px": 0.0
+          }
+        ]
+      }
+    ]
+  }
+]

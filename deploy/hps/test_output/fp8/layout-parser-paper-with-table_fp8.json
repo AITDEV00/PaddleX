@@ -1,0 +1,132 @@
+{
+  "image": "layout-parser-paper-with-table.jpg",
+  "image_size": [
+    791,
+    1024
+  ],
+  "precision": "fp8",
+  "inference_time_s": 0.03429365158081055,
+  "num_detections": 10,
+  "boxes": [
+    {
+      "label": "header",
+      "cls_id": 12,
+      "score": 0.8720703125,
+      "coordinate": [
+        304.0,
+        119.0,
+        580.0,
+        133.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "number",
+      "cls_id": 16,
+      "score": 0.6904296875,
+      "coordinate": [
+        614.0,
+        119.0,
+        624.0,
+        131.0
+      ],
+      "order": 1
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.83544921875,
+      "coordinate": [
+        186.0,
+        162.0,
+        608.0,
+        176.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "table",
+      "cls_id": 21,
+      "score": 0.935546875,
+      "coordinate": [
+        176.0,
+        178.0,
+        618.0,
+        264.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "vision_footnote",
+      "cls_id": 24,
+      "score": 0.91357421875,
+      "coordinate": [
+        174.0,
+        267.0,
+        621.0,
+        333.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9521484375,
+      "coordinate": [
+        170.0,
+        360.0,
+        625.0,
+        469.0
+      ],
+      "order": 2
+    },
+    {
+      "label": "paragraph_title",
+      "cls_id": 17,
+      "score": 0.81494140625,
+      "coordinate": [
+        171.0,
+        490.0,
+        374.0,
+        504.0
+      ],
+      "order": 3
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.96142578125,
+      "coordinate": [
+        169.0,
+        514.0,
+        625.0,
+        654.0
+      ],
+      "order": 4
+    },
+    {
+      "label": "algorithm",
+      "cls_id": 1,
+      "score": 0.86376953125,
+      "coordinate": [
+        161.0,
+        660.0,
+        554.0,
+        732.0
+      ],
+      "order": 5
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.95654296875,
+      "coordinate": [
+        170.0,
+        738.0,
+        625.0,
+        863.0
+      ],
+      "order": 6
+    }
+  ]
+}

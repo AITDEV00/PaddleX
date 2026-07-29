@@ -1,0 +1,64 @@
+# Triton model config for PP-DocLayoutV3 layout detection
+#
+# Key design decisions:
+#   - backend: "python" — PaddleX model runs inside a Python backend model
+#   - max_batch_size: 8 — Triton collects up to 8 concurrent requests
+#   - dynamic_batching with max_queue_delay — flush partial batches quickly
+#   - instance_group: KIND_CPU — Triton doesn't use NVML to manage GPU
+#     (WSL2/DXG passthrough lacks NVML). The Python backend model.py loads
+#     PaddleX with TensorRT, which uses the GPU directly via CUDA. Triton's
+#     dynamic_batching still batches requests; only the instance scheduling
+#     is "CPU" from Triton's perspective.
+#
+# The Python backend's execute(requests) receives a batch of requests from
+# Triton's dynamic batcher. It decodes each image, calls
+# model.predict(images, batch_size=N) once, then splits results back.
+# This gives true server-side continuous batching: Triton queues the next
+# batch while the current one executes on the GPU.
+
+backend: "python"
+max_batch_size: 8
+
+input [
+  {
+    name: "input"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  }
+]
+
+output [
+  {
+    name: "output"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_CPU
+  }
+]
+
+dynamic_batching {
+  # Maximum time (microseconds) a request waits for the batch to fill
+  # before being dispatched.  1000us = 1ms — short enough for minimal
+  # single-request latency, still long enough to collect a batch under
+  # moderate load.  (Was 5000us=5ms; reduced to 1ms after benchmarking
+  # showed that batches rarely form at conc≤4, making the 5ms wait pure
+  # latency cost with no batching benefit.)
+  max_queue_delay_microseconds: 1000
+
+  # Only queue a batch when at least this many requests are waiting.
+  # Setting to 1 means: dispatch as soon as 1 request arrives, but keep
+  # collecting more (up to max_batch_size) until the deadline.
+  preferred_batch_size: [ 1, 2, 4, 8 ]
+
+  # preserve_ordering disabled — each layout detection request is
+  # independent (no inter-request dependency).  Disabling lets Triton
+  # return faster results immediately instead of waiting for slower
+  # requests in the same batch, reducing p50/p95 latency.
+  preserve_ordering: false
+}

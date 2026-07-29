@@ -15,6 +15,7 @@
 from .hpi import HPIRunner
 from .inference_runner import InferenceRunner
 from .onnxruntime_runner import ONNXRuntimeRunner, ONNXRuntimeRunnerConfig
+from .tensorrt_runner import TensorRTRunner, TensorRTRunnerConfig
 from .paddle_dynamic_runner import (
     PaddleDynamicRunner,
     PaddleDynamicRunnerBuilder,
@@ -39,4 +40,6 @@ __all__ = [
     "resolve_paddle_runner_device",
     "PaddleStaticRunner",
     "PaddleStaticRunnerConfig",
+    "TensorRTRunner",
+    "TensorRTRunnerConfig",
 ]

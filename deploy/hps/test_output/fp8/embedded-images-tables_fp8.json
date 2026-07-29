@@ -1,0 +1,120 @@
+{
+  "image": "embedded-images-tables.jpg",
+  "image_size": [
+    1300,
+    1890
+  ],
+  "precision": "fp8",
+  "inference_time_s": 0.040718793869018555,
+  "num_detections": 9,
+  "boxes": [
+    {
+      "label": "number",
+      "cls_id": 16,
+      "score": 0.7578125,
+      "coordinate": [
+        107.0,
+        121.0,
+        146.0,
+        143.0
+      ],
+      "order": 1
+    },
+    {
+      "label": "header",
+      "cls_id": 12,
+      "score": 0.8486328125,
+      "coordinate": [
+        402.0,
+        120.0,
+        881.0,
+        146.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "chart",
+      "cls_id": 3,
+      "score": 0.955078125,
+      "coordinate": [
+        306.0,
+        180.0,
+        978.0,
+        631.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.81787109375,
+      "coordinate": [
+        110.0,
+        649.0,
+        1170.0,
+        676.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.7978515625,
+      "coordinate": [
+        106.0,
+        714.0,
+        1069.0,
+        761.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "table",
+      "cls_id": 21,
+      "score": 0.93017578125,
+      "coordinate": [
+        106.0,
+        768.0,
+        1173.0,
+        1006.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.9599609375,
+      "coordinate": [
+        103.0,
+        1046.0,
+        1179.0,
+        1298.0
+      ],
+      "order": 2
+    },
+    {
+      "label": "chart",
+      "cls_id": 3,
+      "score": 0.935546875,
+      "coordinate": [
+        304.0,
+        1334.0,
+        980.0,
+        1705.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.8427734375,
+      "coordinate": [
+        449.0,
+        1724.0,
+        832.0,
+        1752.0
+      ],
+      "order": 0
+    }
+  ]
+}

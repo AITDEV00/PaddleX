@@ -610,38 +610,72 @@ def iou(box1, box2):
     return iou_value
 
 
+def _iou_matrix(boxes_coords):
+    """Vectorized IoU computation for all pairs of boxes.
+
+    Args:
+        boxes_coords: (N, 4) array of [x1, y1, x2, y2]
+
+    Returns:
+        (N, N) IoU matrix
+    """
+    if len(boxes_coords) == 0:
+        return np.zeros((0, 0), dtype=np.float32)
+
+    x1 = boxes_coords[:, 0][:, None]  # (N, 1)
+    y1 = boxes_coords[:, 1][:, None]
+    x2 = boxes_coords[:, 2][:, None]
+    y2 = boxes_coords[:, 3][:, None]
+
+    x1_i = np.maximum(x1, boxes_coords[:, 0])  # (N, N)
+    y1_i = np.maximum(y1, boxes_coords[:, 1])
+    x2_i = np.minimum(x2, boxes_coords[:, 2])
+    y2_i = np.minimum(y2, boxes_coords[:, 3])
+
+    inter_area = np.maximum(0, x2_i - x1_i + 1) * np.maximum(0, y2_i - y1_i + 1)
+    box_area = (x2 - x1 + 1) * (y2 - y1 + 1)  # (N, 1)
+    union_area = box_area + box_area.T - inter_area
+    iou_mat = np.where(union_area > 0, inter_area / union_area, 0.0)
+    return iou_mat
+
+
 def nms(boxes, iou_same=0.6, iou_diff=0.95):
-    """Perform Non-Maximum Suppression (NMS) with different IoU thresholds for same and different classes."""
-    # Extract class scores
+    """Perform Non-Maximum Suppression (NMS) with different IoU thresholds for
+    same and different classes.
+
+    Uses a vectorized greedy approach with pre-computed IoU matrix for
+    O(n²) numpy operations instead of O(n²) Python function calls.
+    """
+    if len(boxes) == 0:
+        return []
+    n = len(boxes)
+
+    # Extract scores and sort descending
     scores = boxes[:, 1]
+    order = np.argsort(scores)[::-1]
 
-    # Sort indices by scores in descending order
-    indices = np.argsort(scores)[::-1]
-    selected_boxes = []
+    # Pre-compute IoU matrix once (vectorized)
+    coords = boxes[:, 2:]
+    iou_mat = _iou_matrix(coords)
 
-    while len(indices) > 0:
-        current = indices[0]
-        current_box = boxes[current]
-        current_class = current_box[0]
-        current_box[1]
-        current_coords = current_box[2:]
+    # Per-pair threshold: same class → iou_same, different class → iou_diff
+    classes = boxes[:, 0]
+    same_class = classes[:, None] == classes[None, :]  # (N, N) bool
+    threshold_mat = np.where(same_class, iou_same, iou_diff)
 
-        selected_boxes.append(current)
-        indices = indices[1:]
+    suppressed = np.zeros(n, dtype=bool)
+    selected = []
 
-        filtered_indices = []
-        for i in indices:
-            box = boxes[i]
-            box_class = box[0]
-            box_coords = box[2:]
-            iou_value = iou(current_coords, box_coords)
-            threshold = iou_same if current_class == box_class else iou_diff
+    for idx in order:
+        if suppressed[idx]:
+            continue
+        selected.append(int(idx))
+        # Suppress all lower-score boxes that exceed the IoU threshold
+        overlap = iou_mat[idx, :] >= threshold_mat[idx, :]
+        overlap[idx] = False  # don't suppress self
+        suppressed |= overlap
 
-            # If the IoU is below the threshold, keep the box
-            if iou_value < threshold:
-                filtered_indices.append(i)
-        indices = filtered_indices
-    return selected_boxes
+    return selected
 
 
 def is_contained(box1, box2):
@@ -660,32 +694,88 @@ def is_contained(box1, box2):
     return iou >= 0.9
 
 
-def check_containment(boxes, formula_index=None, category_index=None, mode=None):
-    """Check containment relationships among boxes."""
-    n = len(boxes)
-    contains_other = np.zeros(n, dtype=int)
-    contained_by_other = np.zeros(n, dtype=int)
+def _containment_matrix(boxes_coords):
+    """Vectorized containment check: M[i, j] = True if box i is contained in box j.
 
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            if formula_index is not None:
-                if boxes[i][0] == formula_index and boxes[j][0] != formula_index:
-                    continue
-            if category_index is not None and mode is not None:
-                if mode == "large" and boxes[j][0] == category_index:
-                    if is_contained(boxes[i], boxes[j]):
-                        contained_by_other[i] = 1
-                        contains_other[j] = 1
-                if mode == "small" and boxes[i][0] == category_index:
-                    if is_contained(boxes[i], boxes[j]):
-                        contained_by_other[i] = 1
-                        contains_other[j] = 1
-            else:
-                if is_contained(boxes[i], boxes[j]):
-                    contained_by_other[i] = 1
-                    contains_other[j] = 1
+    "Contained" means intersection / area(box_i) >= 0.9.
+
+    Args:
+        boxes_coords: (N, 4) array of [x1, y1, x2, y2]
+
+    Returns:
+        (N, N) boolean matrix where M[i, j] = is_contained(box_i, box_j)
+    """
+    n = len(boxes_coords)
+    if n == 0:
+        return np.zeros((0, 0), dtype=bool)
+
+    x1 = boxes_coords[:, 0][:, None]  # (N, 1) — for box i
+    y1 = boxes_coords[:, 1][:, None]
+    x2 = boxes_coords[:, 2][:, None]
+    y2 = boxes_coords[:, 3][:, None]
+
+    x1_j = boxes_coords[:, 0]  # (N,) — for box j
+    y1_j = boxes_coords[:, 1]
+    x2_j = boxes_coords[:, 2]
+    y2_j = boxes_coords[:, 3]
+
+    xi1 = np.maximum(x1, x1_j)
+    yi1 = np.maximum(y1, y1_j)
+    xi2 = np.minimum(x2, x2_j)
+    yi2 = np.minimum(y2, y2_j)
+
+    inter_area = np.maximum(0, xi2 - xi1) * np.maximum(0, yi2 - yi1)
+    box_i_area = (x2 - x1) * (y2 - y1)  # (N, 1)
+
+    # ratio[i, j] = intersection / area(box_i); >= 0.9 means contained
+    ratio = np.where(box_i_area > 0, inter_area / box_i_area, 0.0)
+    contained = ratio >= 0.9
+    np.fill_diagonal(contained, False)  # a box cannot contain itself
+    return contained
+
+
+def check_containment(boxes, formula_index=None, category_index=None, mode=None):
+    """Check containment relationships among boxes.
+
+    Uses vectorized numpy operations for O(n²) computation without Python
+    per-pair function calls.
+    """
+    n = len(boxes)
+    if n == 0:
+        return np.zeros(0, dtype=int), np.zeros(0, dtype=int)
+
+    classes = boxes[:, 0]
+    coords = boxes[:, 2:6]
+
+    # Pre-compute full containment matrix (vectorized)
+    contained_mat = _containment_matrix(coords)  # contained_mat[i, j] = box i in box j
+
+    if formula_index is not None:
+        # Skip pairs where i is formula and j is not formula
+        i_is_formula = classes == formula_index
+        j_not_formula = classes != formula_index
+        skip = i_is_formula[:, None] & j_not_formula[None, :]
+        contained_mat = contained_mat & ~skip
+
+    if category_index is not None and mode is not None:
+        if mode == "large":
+            # Only check: box i (any) contained in box j (category)
+            j_is_cat = classes == category_index
+            mask = j_is_cat[None, :]  # only j=category columns
+            contained_mat = contained_mat & mask
+        elif mode == "small":
+            # Only check: box i (category) contained in box j (any)
+            i_is_cat = classes == category_index
+            mask = i_is_cat[:, None]  # only i=category rows
+            contained_mat = contained_mat & mask
+    else:
+        pass  # use full contained_mat
+
+    # contained_by_other[i] = 1 if any box j contains box i
+    contained_by_other = (contained_mat.any(axis=1)).astype(int)
+    # contains_other[j] = 1 if box j contains any box i
+    contains_other = (contained_mat.any(axis=0)).astype(int)
+
     return contains_other, contained_by_other
 
 

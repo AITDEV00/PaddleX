@@ -22,6 +22,7 @@ from . import (  # noqa: F401
     hpi,
     onnxruntime,
     paddle,
+    tensorrt,
     transformers,
 )
 from ._base import InferenceEngine, RunnerEngine

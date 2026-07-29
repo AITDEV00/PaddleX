@@ -1,0 +1,120 @@
+{
+  "image": "embedded-images-tables.jpg",
+  "image_size": [
+    1300,
+    1890
+  ],
+  "precision": "fp16",
+  "inference_time_s": 0.04096841812133789,
+  "num_detections": 9,
+  "boxes": [
+    {
+      "label": "number",
+      "cls_id": 16,
+      "score": 0.7685546875,
+      "coordinate": [
+        107.0,
+        122.0,
+        146.0,
+        143.0
+      ],
+      "order": 1
+    },
+    {
+      "label": "header",
+      "cls_id": 12,
+      "score": 0.85400390625,
+      "coordinate": [
+        403.0,
+        120.0,
+        882.0,
+        146.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "chart",
+      "cls_id": 3,
+      "score": 0.958984375,
+      "coordinate": [
+        306.0,
+        181.0,
+        979.0,
+        631.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.84130859375,
+      "coordinate": [
+        110.0,
+        650.0,
+        1171.0,
+        678.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.80126953125,
+      "coordinate": [
+        106.0,
+        714.0,
+        1070.0,
+        762.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "table",
+      "cls_id": 21,
+      "score": 0.94482421875,
+      "coordinate": [
+        105.0,
+        768.0,
+        1173.0,
+        1005.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "text",
+      "cls_id": 22,
+      "score": 0.958984375,
+      "coordinate": [
+        103.0,
+        1046.0,
+        1181.0,
+        1298.0
+      ],
+      "order": 2
+    },
+    {
+      "label": "chart",
+      "cls_id": 3,
+      "score": 0.943359375,
+      "coordinate": [
+        304.0,
+        1334.0,
+        980.0,
+        1705.0
+      ],
+      "order": 0
+    },
+    {
+      "label": "figure_title",
+      "cls_id": 7,
+      "score": 0.86328125,
+      "coordinate": [
+        450.0,
+        1725.0,
+        832.0,
+        1751.0
+      ],
+      "order": 0
+    }
+  ]
+}

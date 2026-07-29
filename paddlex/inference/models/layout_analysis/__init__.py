@@ -60,6 +60,7 @@ register_predictor_binding_map(
         ),
         "hpi": LAYOUTANALYSIS_MODELS,
         "onnxruntime": LAYOUTANALYSIS_MODELS,
+        "tensorrt": LAYOUTANALYSIS_MODELS,
     },
 )
 register_predictor_binding_map(
