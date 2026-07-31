@@ -695,11 +695,45 @@ class TensorRTRunner(InferenceRunner):
             create_flags |= 1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED)
         elif not is_quantized and hasattr(trt.NetworkDefinitionCreationFlag, "WEAKLY_TYPED"):
             create_flags |= 1 << int(trt.NetworkDefinitionCreationFlag.WEAKLY_TYPED)
+
         network = builder.create_network(create_flags)
         parser = trt.OnnxParser(network, self._logger)
         with open(onnx_path, "rb") as f:
-            if not parser.parse(f.read()):
-                errors = [str(parser.get_error(i)) for i in range(parser.num_errors)]
+            onnx_data = f.read()
+        if not parser.parse(onnx_data):
+            # STRONGLY_TYPED rejects mixed-type graphs (e.g. modelopt FP8
+            # exports with Conv: Float input + Half kernel). Fall back to
+            # a weakly-typed network (no STRONGLY_TYPED flag), which auto-
+            # casts mismatched weight types while still honouring Q/DQ
+            # nodes for quantized precision.  In TRT 10.16 there is no
+            # explicit WEAKLY_TYPED flag — omitting STRONGLY_TYPED is the
+            # weakly-typed mode.
+            if is_quantized and (
+                1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED)
+                & create_flags
+            ):
+                self._logger.log(
+                    trt.Logger.WARNING,
+                    "STRONGLY_TYPED parse failed; retrying as weakly-typed.",
+                )
+                create_flags &= ~(
+                    1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED)
+                )
+                network = builder.create_network(create_flags)
+                parser = trt.OnnxParser(network, self._logger)
+                if not parser.parse(onnx_data):
+                    errors = [
+                        str(parser.get_error(i))
+                        for i in range(parser.num_errors)
+                    ]
+                    raise RuntimeError(
+                        "Failed to parse ONNX: "
+                        f"{onnx_path}\n" + "\n".join(errors)
+                    )
+            else:
+                errors = [
+                    str(parser.get_error(i)) for i in range(parser.num_errors)
+                ]
                 raise RuntimeError(
                     f"Failed to parse ONNX: {onnx_path}\n" + "\n".join(errors)
                 )
