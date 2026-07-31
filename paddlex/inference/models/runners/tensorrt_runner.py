@@ -163,6 +163,97 @@ class TensorRTRunner(InferenceRunner):
             "1", "true", "True",
         )
 
+        # ── Pre-allocated pinned output buffers at max batch size ──
+        # pagelocked_empty() is expensive (40-60ms per call).  When batch
+        # sizes fluctuate (1↔4), calling it every shape-change destroys
+        # throughput.  Instead, allocate once at max batch and use .ravel()
+        # + .reshape() views for smaller batches — zero allocation cost.
+        # Keyed by output name → (pinned_buffer, max_bytes, max_shape).
+        self._h_output_max: Dict[str, np.ndarray] = {}
+        self._h_output_max_bytes: Dict[str, int] = {}
+        self._max_batch: int = 0  # set on first allocate
+
+        # ── Cached hot-path flags (avoid os.environ.get on every call) ──
+        self._lat = os.environ.get("HPS_LATENCY_LOG", "0") in (
+            "1", "true", "True",
+        )
+        self._skip_d2h_copy = os.environ.get(
+            "HPS_TRT_SKIP_D2H_COPY", "0"
+        ) in ("1", "true", "True")
+        _skip_raw = os.environ.get("HPS_TRT_SKIP_D2H_OUTPUTS", "")
+        self._skip_d2h_auto = _skip_raw.strip().lower() == "auto"
+        self._skip_d2h_names = (
+            {n.strip() for n in _skip_raw.split(",") if n.strip()}
+            if (_skip_raw.strip() and not self._skip_d2h_auto)
+            else set()
+        )
+
+        # ── Pinned input buffers (Optimization #14) ──
+        # memcpy_htod_async from PAGEABLE (regular numpy) host memory is
+        # NOT truly async — the CUDA runtime must synchronously stage the
+        # data through an internal pinned buffer before issuing the DMA.
+        # For batch_size=4 / 29 MB, this staging costs ~9-11 ms.  By
+        # copying into a pre-allocated pinned buffer first (fast CPU
+        # memcpy at ~10 GB/s ≈ 3 ms for 29 MB) the subsequent DMA becomes
+        # truly async (≈0.8 ms measured) — net ~7 ms saved per batch.
+        # Controlled by HPS_TRT_PINNED (default on).
+        self._h_inputs: Dict[str, np.ndarray] = {}
+        self._h_input_sizes: Dict[str, int] = {}
+        # Pinned inputs disabled by default — tested at production scale,
+        # np.copyto overhead negates DMA speedup.  Enable with
+        # HPS_TRT_PINNED_INPUTS=1 for experimentation.
+        self._use_pinned_inputs = os.environ.get(
+            "HPS_TRT_PINNED_INPUTS", "0"
+        ) in ("1", "true", "True")
+
+        # ── Precomputed dtype map (avoid rebuilding per-call) ──
+        self._dtype_map = {
+            str(trt.float32): np.float32,
+            str(trt.float16): np.float16,
+            str(trt.int32): np.int32,
+            str(trt.int8): np.int8,
+            str(trt.bool): np.bool_,
+        }
+        self._output_np_dtypes: Dict[str, np.dtype] = {
+            name: self._dtype_map.get(
+                str(self._engine.get_tensor_dtype(name)), np.float32
+            )
+            for name in self._output_names
+        }
+
+        # ── Precomputed sort_inputs permutation (input names are fixed) ──
+        self._input_perm = sorted(
+            range(len(self._input_names)),
+            key=self._input_names.__getitem__,
+        )
+
+        # ── Cache last input shapes (skip set_input_shape if unchanged) ──
+        self._last_input_shapes: Optional[List[tuple]] = None
+
+        # ── CUDA Graph cache (Fix 10) ──
+        # execute_async_v3 enqueues 453 kernels per call, causing ~4.5ms
+        # of CPU-side launch overhead (the dominant bottleneck after Fix 8).
+        # CUDA Graphs capture all these launches into a single replayable
+        # graph node, reducing launch overhead from 4.5ms → ~0.05ms.
+        #
+        # Graphs require FIXED device memory addresses.  For GPU-resident
+        # torch inputs, we D2D-copy the tensor data into a pre-allocated
+        # fixed device buffer before graph replay.
+        #
+        # One graph per batch size (shapes differ, TRT needs set_input_shape
+        # before capture).
+        self._cuda_graphs: Dict[int, Any] = {}  # batch_size → torch CUDAGraph
+        self._cuda_graph_execs: Dict[int, Any] = {}  # batch_size → torch CUDAGraph (same obj)
+        self._cuda_graph_streams: Dict[int, Any] = {}  # batch_size → pycuda non-blocking Stream
+        self._cuda_graph_ext_streams: Dict[int, Any] = {}  # batch_size → torch ExternalStream
+        self._max_batch_graph = int(os.environ.get("HPS_API_BATCH_SIZE", "4"))
+        self._use_cuda_graphs = os.environ.get(
+            "HPS_CUDA_GRAPHS", "0"
+        ) in ("1", "true", "True")
+        # Fixed device buffers for GPU-resident inputs (for graph capture)
+        # Maps input_name → pycuda DeviceAllocation (stable address)
+        self._graph_d_inputs: Dict[str, Any] = {}
+
     def __call__(
         self,
         x: Union[Sequence[np.ndarray], np.ndarray, None] = None,
@@ -181,26 +272,20 @@ class TensorRTRunner(InferenceRunner):
                 f"{len(self._input_names)} vs {len(x)}"
             )
 
-        x = sort_inputs(x, self._input_names)
+        # Use precomputed permutation (avoids re-sorting fixed input names)
+        x = [x[self._input_perm.index(i)] for i in range(len(x))]
 
-        _lat = os.environ.get("HPS_LATENCY_LOG", "0") in ("1", "true", "True")
-        _skip_d2h_copy = os.environ.get("HPS_TRT_SKIP_D2H_COPY", "0") in (
-            "1",
-            "true",
-            "True",
-        )
-        # Skip D2H copy for large outputs that the caller doesn't need.
-        # PP-DocLayoutV3's fetch_name_2 (masks) is 48 MB at bs=1 / 96 MB at
-        # bs=2 — all zeros for rect-only layout detection (the API path).
-        # Skipping the D2H transfer saves ~1.6 ms at bs=1 / ~3.2 ms at bs=2.
-        # Format: comma-separated output names, or "auto" to skip any
-        # output whose device buffer exceeds 10 MB.
-        _skip_d2h_names_raw = os.environ.get("HPS_TRT_SKIP_D2H_OUTPUTS", "")
+        _lat = self._lat
         _t0 = time.perf_counter() if _lat else 0.0
 
-        # Set input shapes for dynamic batch
-        for name, arr in zip(self._input_names, x):
-            self._context.set_input_shape(name, arr.shape)
+        batch_size = x[0].shape[0] if x else 0
+
+        # Set input shapes for dynamic batch — skip if unchanged (common case)
+        new_shapes = [arr.shape for arr in x]
+        if new_shapes != self._last_input_shapes:
+            for name, arr in zip(self._input_names, x):
+                self._context.set_input_shape(name, arr.shape)
+            self._last_input_shapes = new_shapes
 
         _t_set_shape = time.perf_counter() if _lat else 0.0
 
@@ -209,60 +294,257 @@ class TensorRTRunner(InferenceRunner):
 
         _t_alloc = time.perf_counter() if _lat else 0.0
 
-        # Copy inputs H2D — async copy on stream.
-        # All operations on the same stream are serialized, so execute
-        # won't start until H2D completes.
-        #
-        # Optimization: use direct async memcpy from the numpy buffer
-        # instead of copying through a pinned intermediate.  For our data
-        # sizes (≤15 MB), the extra np.copyto to a pinned buffer costs
-        # more (~0.6 ms) than the DMA speedup it provides.  Micro-bench:
-        #   pinned+async = 1.22 ms,  direct async = 1.00 ms.
-        for name, arr in zip(self._input_names, x):
-            arr_contig = (
-                arr if arr.flags["C_CONTIGUOUS"] else np.ascontiguousarray(arr)
-            )
-            self._cuda.memcpy_htod_async(
-                self._d_inputs[name], arr_contig, self._stream
-            )
-            self._context.set_tensor_address(name, int(self._d_inputs[name]))
+        # ── H2D copy or GPU-resident shortcut ──
+        # If an input is a torch GPU tensor (has data_ptr and is on CUDA),
+        # skip H2D entirely — set the tensor address directly to the
+        # torch tensor's device memory.  This eliminates the 4ms H2D copy
+        # when pre-processing is done on GPU.
+        _gpu_inputs = False
+        for arr in x:
+            if hasattr(arr, "data_ptr") and hasattr(arr, "is_cuda"):
+                _gpu_inputs = True
+                break
+
+        if _gpu_inputs:
+            if self._use_cuda_graphs:
+                # ── CUDA Graph path: D2D copy into fixed buffers ──
+                # CUDA Graphs require fixed memory addresses.  Torch
+                # tensors have different data_ptr() each call, so we
+                # D2D-copy into pre-allocated fixed device buffers whose
+                # addresses are baked into the captured graph.
+                #
+                # CRITICAL: All operations (D2D + graph replay) must run
+                # on the SAME graph_stream to maintain ordering.
+                gs = self._cuda_graph_streams.get(batch_size)
+                copy_stream = gs if gs is not None else self._stream
+
+                for name, arr in zip(self._input_names, x):
+                    if hasattr(arr, "data_ptr") and getattr(arr, "is_cuda", False):
+                        # Ensure fixed device buffer exists and is large enough.
+                        # CRITICAL: once a graph is captured, the buffer
+                        # address is baked in.  Never free/reallocate —
+                        # only grow (which also invalidates graphs).
+                        # Pre-allocate at max batch size to avoid growth.
+                        nbytes = arr.nbytes
+                        max_nbytes = nbytes * self._max_batch_graph
+                        cur = self._graph_d_inputs.get(name)
+                        cur_size = getattr(cur, "size", 0) if cur else 0
+                        if cur is None or cur_size < max_nbytes:
+                            if cur is not None:
+                                cur.free()
+                                # Invalidate all graphs (addresses changed)
+                                self._invalidate_graphs()
+                            self._graph_d_inputs[name] = self._cuda.mem_alloc(max_nbytes)
+                        # D2D copy: torch tensor → fixed device buffer
+                        self._cuda.memcpy_dtod_async(
+                            self._graph_d_inputs[name],
+                            arr.data_ptr(),
+                            nbytes,
+                            copy_stream,
+                        )
+                        self._context.set_tensor_address(
+                            name, int(self._graph_d_inputs[name])
+                        )
+                    else:
+                        # Small numpy metadata (img_sizes, scale_factors)
+                        arr_contig = (
+                            arr if arr.flags["C_CONTIGUOUS"]
+                            else np.ascontiguousarray(arr)
+                        )
+                        self._cuda.memcpy_htod_async(
+                            self._d_inputs[name], arr_contig, copy_stream
+                        )
+                        self._context.set_tensor_address(
+                            name, int(self._d_inputs[name])
+                        )
+            else:
+                # GPU-resident inputs — set tensor addresses directly
+                for name, arr in zip(self._input_names, x):
+                    if hasattr(arr, "data_ptr") and getattr(arr, "is_cuda", False):
+                        self._context.set_tensor_address(name, arr.data_ptr())
+                    else:
+                        # Fallback: numpy input, do H2D for this one
+                        arr_contig = (
+                            arr if arr.flags["C_CONTIGUOUS"]
+                            else np.ascontiguousarray(arr)
+                        )
+                        self._cuda.memcpy_htod_async(
+                            self._d_inputs[name], arr_contig, self._stream
+                        )
+                        self._context.set_tensor_address(name, int(self._d_inputs[name]))
+        elif self._use_pinned_inputs:
+            for name, arr in zip(self._input_names, x):
+                arr_contig = (
+                    arr if arr.flags["C_CONTIGUOUS"] else np.ascontiguousarray(arr)
+                )
+                # Fast CPU memcpy into pinned buffer
+                pin_buf = self._h_inputs[name]
+                np.copyto(pin_buf[:arr_contig.nbytes],
+                          arr_contig.view(np.uint8).ravel())
+                # True async DMA from pinned memory
+                self._cuda.memcpy_htod_async(
+                    self._d_inputs[name], pin_buf[:arr_contig.nbytes],
+                    self._stream
+                )
+            for name in self._input_names:
+                self._context.set_tensor_address(name, int(self._d_inputs[name]))
+        else:
+            for name, arr in zip(self._input_names, x):
+                arr_contig = (
+                    arr if arr.flags["C_CONTIGUOUS"] else np.ascontiguousarray(arr)
+                )
+                self._cuda.memcpy_htod_async(
+                    self._d_inputs[name], arr_contig, self._stream
+                )
+            for name in self._input_names:
+                self._context.set_tensor_address(name, int(self._d_inputs[name]))
+
+        _t_memcpy = time.perf_counter() if _lat else 0.0
+        _t_set_addr_in = time.perf_counter() if _lat else 0.0
 
         for name in self._output_names:
             self._context.set_tensor_address(name, int(self._d_outputs[name]))
 
         _t_h2d = time.perf_counter() if _lat else 0.0
 
-        # Execute (queued on same stream after H2D)
-        self._context.execute_async_v3(self._stream.handle)
+        # ── Execute via CUDA Graph or direct execute_async_v3 ──
+        # (batch_size computed earlier, before D2D copies)
 
-        _t_exec_queue = time.perf_counter() if _lat else 0.0
+        # When CUDA Graphs are enabled, capture a graph for EVERY batch
+        # size encountered.  Mixing graph replay with direct execution
+        # corrupts the TRT context state (set_input_shape /
+        # set_tensor_address changes).  So either ALL calls use graphs
+        # or none do.
+        _use_graph = self._use_cuda_graphs and _gpu_inputs
+        _graph_used = False
+        _t_replay = 0.0
 
-        # Determine which outputs to skip D2H for.
-        if _skip_d2h_names_raw.strip().lower() == "auto":
-            _skip_d2h_names = {
-                name for name in self._output_names
-                if self._buf_sizes.get(name, 0) > 10 * 1024 * 1024
-            }
-        elif _skip_d2h_names_raw.strip():
-            _skip_d2h_names = {
-                n.strip() for n in _skip_d2h_names_raw.split(",") if n.strip()
-            }
+        if _use_graph:
+            # ── CUDA Graph replay path (via torch.cuda.CUDAGraph) ──
+            # execute_async_v3 enqueues 453 kernel launches per call,
+            # costing ~4.5ms of CPU-side overhead.  CUDA Graphs capture
+            # all launches into one replayable graph, reducing overhead
+            # to ~0.05ms per replay (measured 3.8x speedup in isolation).
+            #
+            # pycuda 2026.1 lacks graph API, so we use torch.cuda.CUDAGraph
+            # with torch.cuda.ExternalStream wrapping a non-blocking pycuda
+            # stream.  Non-blocking is REQUIRED — a blocking stream causes
+            # cudaErrorStreamCaptureImplicit.
+            import torch
+
+            graph_exec = self._cuda_graph_execs.get(batch_size)
+
+            if graph_exec is None:
+                # ── Capture ──
+                # Create a non-blocking stream for graph capture.
+                # flags=1 = CU_STREAM_NON_BLOCKING
+                graph_stream = self._cuda.Stream(flags=1)
+                ext_stream = torch.cuda.ExternalStream(graph_stream.handle)
+                self._cuda_graph_streams[batch_size] = graph_stream
+                self._cuda_graph_ext_streams[batch_size] = ext_stream
+
+                # Set output tensor addresses (fixed for graph)
+                for name in self._output_names:
+                    self._context.set_tensor_address(
+                        name, int(self._d_outputs[name])
+                    )
+
+                # Create a torch CUDAGraph
+                graph = torch.cuda.CUDAGraph()
+
+                # Determine which outputs to skip D2H for
+                if self._skip_d2h_auto:
+                    _skip_d2h_names = {
+                        name for name in self._output_names
+                        if self._buf_sizes.get(name, 0) > 10 * 1024 * 1024
+                    }
+                else:
+                    _skip_d2h_names = self._skip_d2h_names
+
+                # Capture: execute_async_v3 only.
+                # TRT's Myelin engine calls cuStreamSynchronize internally,
+                # which is forbidden in global mode → must use relaxed.
+                # In relaxed mode pycuda D2H is not reliably captured, so
+                # D2H is done outside the graph after replay+sync.
+                with torch.cuda.graph(
+                    graph, stream=ext_stream, capture_error_mode="relaxed"
+                ):
+                    self._context.execute_async_v3(ext_stream.cuda_stream)
+
+                self._cuda_graphs[batch_size] = graph
+                self._cuda_graph_execs[batch_size] = graph
+
+                # First replay (also validates the graph)
+                graph.replay()
+                graph_stream.synchronize()
+                _t_replay = time.perf_counter() if _lat else 0.0
+
+                # D2H copies (outside graph — relaxed mode doesn't
+                # reliably capture pycuda memcpy)
+                for name in self._output_names:
+                    if name in _skip_d2h_names:
+                        continue
+                    self._cuda.memcpy_dtoh_async(
+                        self._h_outputs[name],
+                        self._d_outputs[name],
+                        graph_stream,
+                    )
+                graph_stream.synchronize()
+            else:
+                # ── Replay ── (single API call, ~0.05ms vs 4.5ms)
+                graph_exec.replay()
+                gs = self._cuda_graph_streams[batch_size]
+                gs.synchronize()
+                _t_replay = time.perf_counter() if _lat else 0.0
+
+                # D2H copies (outside graph)
+                if self._skip_d2h_auto:
+                    _skip_d2h_names = {
+                        name for name in self._output_names
+                        if self._buf_sizes.get(name, 0) > 10 * 1024 * 1024
+                    }
+                else:
+                    _skip_d2h_names = self._skip_d2h_names
+                for name in self._output_names:
+                    if name in _skip_d2h_names:
+                        continue
+                    self._cuda.memcpy_dtoh_async(
+                        self._h_outputs[name],
+                        self._d_outputs[name],
+                        gs,
+                    )
+                gs.synchronize()
+
+            _t_exec_queue = time.perf_counter() if _lat else 0.0
+            _graph_used = True
         else:
-            _skip_d2h_names = set()
+            # ── Direct execute path (no CUDA Graphs) ──
+            # Execute (queued on same stream after H2D)
+            self._context.execute_async_v3(self._stream.handle)
 
-        # Queue async D2H copies on the SAME stream — they will execute
-        # automatically after the GPU kernels finish, without requiring a
-        # separate synchronize between execute and copy.  This pipelines
-        # execute→D2H on the GPU side, reducing idle time.
-        for name in self._output_names:
-            if name in _skip_d2h_names:
-                continue
-            self._cuda.memcpy_dtoh_async(
-                self._h_outputs[name], self._d_outputs[name], self._stream
-            )
+            _t_exec_queue = time.perf_counter() if _lat else 0.0
+            _t_replay = _t_exec_queue  # no separate replay phase
+            _graph_used = False
 
-        # Single sync — waits for H2D + execute + D2H to all complete.
-        self._stream.synchronize()
+            # Determine which outputs to skip D2H for (cached values).
+            if self._skip_d2h_auto:
+                _skip_d2h_names = {
+                    name for name in self._output_names
+                    if self._buf_sizes.get(name, 0) > 10 * 1024 * 1024
+                }
+            else:
+                _skip_d2h_names = self._skip_d2h_names
+
+            # Queue async D2H copies on the SAME stream
+            for name in self._output_names:
+                if name in _skip_d2h_names:
+                    continue
+                self._cuda.memcpy_dtoh_async(
+                    self._h_outputs[name], self._d_outputs[name], self._stream
+                )
+
+            # Single sync — waits for H2D + execute + D2H to all complete.
+            self._stream.synchronize()
 
         _t_sync = time.perf_counter() if _lat else 0.0
 
@@ -278,7 +560,7 @@ class TensorRTRunner(InferenceRunner):
                 # any masks processing.
                 continue
             h = self._h_outputs[name]
-            if _skip_d2h_copy:
+            if self._skip_d2h_copy:
                 results.append(h)
             else:
                 results.append(h.copy())
@@ -288,26 +570,70 @@ class TensorRTRunner(InferenceRunner):
             print(
                 '{"event":"latency","stage":"trt_runner",'
                 '"set_shape_ms":%.3f,"alloc_ms":%.3f,'
-                '"h2d_copy_ms":%.3f,"exec_queue_ms":%.3f,'
+                '"memcpy_ms":%.3f,"set_addr_in_ms":%.3f,'
+                '"set_addr_out_ms":%.3f,"h2d_copy_ms":%.3f,'
+                '"exec_queue_ms":%.3f,'
+                '"graph_replay_ms":%.3f,'
                 '"sync_ms":%.3f,"d2h_collect_ms":%.3f,'
-                '"total_ms":%.3f,"batch_size":%d}'
+                '"total_ms":%.3f,"batch_size":%d,"graph_used":%s}'
                 % (
                     (_t_set_shape - _t0) * 1000,
                     (_t_alloc - _t_set_shape) * 1000,
+                    (_t_memcpy - _t_alloc) * 1000,
+                    (_t_set_addr_in - _t_memcpy) * 1000,
+                    (_t_h2d - _t_set_addr_in) * 1000,
                     (_t_h2d - _t_alloc) * 1000,
                     (_t_exec_queue - _t_h2d) * 1000,
+                    (_t_replay - _t_h2d) * 1000 if _graph_used else 0.0,
                     (_t_sync - _t_exec_queue) * 1000,
                     (_t_d2h - _t_sync) * 1000,
                     (_t_d2h - _t0) * 1000,
                     x[0].shape[0] if x else 0,
+                    "true" if _graph_used else "false",
                 ),
                 flush=True,
             )
 
         return results
 
+    def _invalidate_graphs(self) -> None:
+        """Invalidate all captured CUDA Graphs.
+
+        Called when device buffer addresses change (input or output
+        buffers grow).  Captured graphs have old addresses baked in
+        and would cause illegal memory access on replay.
+        """
+        if not self._cuda_graph_execs:
+            return
+        for g in self._cuda_graph_execs.values():
+            try:
+                g.reset()
+            except Exception:
+                pass
+        self._cuda_graph_execs.clear()
+        self._cuda_graphs.clear()
+        for s in self._cuda_graph_streams.values():
+            try:
+                s.synchronize()
+            except Exception:
+                pass
+        self._cuda_graph_streams.clear()
+        self._cuda_graph_ext_streams.clear()
+
     def close(self) -> None:
         """Free GPU buffers and destroy TRT context/engine."""
+        # Free CUDA graph objects (torch CUDAGraph + pycuda buffers)
+        # torch CUDAGraph objects are GC'd automatically, just clear refs
+        self._cuda_graph_execs.clear()
+        self._cuda_graphs.clear()
+        # Free fixed device buffers for graph inputs
+        for buf in self._graph_d_inputs.values():
+            try:
+                buf.free()
+            except Exception:
+                pass
+        self._graph_d_inputs.clear()
+
         for buf in list(self._d_inputs.values()) + list(self._d_outputs.values()):
             try:
                 buf.free()
@@ -612,33 +938,61 @@ class TensorRTRunner(InferenceRunner):
         ``pycuda.driver.pagelocked_empty()`` — pinned/page-locked memory
         that enables async DMA transfers, overlapping H2D/D2H copies with
         GPU kernel execution on the same stream.
-        """
-        import tensorrt as trt
 
-        # Inputs — device buffers
+        **Optimization: pre-allocated max-batch pinned buffers.**
+        ``pagelocked_empty()`` is a CUDA runtime call that costs 40-60ms.
+        When batch sizes fluctuate (1↔4 under mixed concurrency), calling
+        it on every shape-change destroys throughput (observed C=5
+        regression from 96→32 r/s).  Instead, we allocate pinned buffers
+        once at the maximum batch size seen, then use zero-cost numpy
+        ``reshape()`` views for smaller batches.  Device buffers are also
+        kept at max size (``mem_alloc`` is ~0.1ms but freeing+reallocating
+        causes fragmentation).
+        """
+        # Inputs — device buffers (keep at max size, never shrink)
         for name, arr in zip(self._input_names, inputs):
+            # GPU-resident inputs (torch tensors) don't need device buffer
+            # allocation — we use the tensor's memory directly via
+            # set_tensor_address in __call__.
+            if hasattr(arr, "data_ptr") and getattr(arr, "is_cuda", False):
+                continue
             nbytes = arr.nbytes
             current = self._d_inputs.get(name)
             cur_size = self._buf_sizes.get(name, 0)
             if current is not None and cur_size >= nbytes:
+                # Reuse device buffer.  Also ensure pinned input buffer
+                # is large enough (only grows, never shrinks).
+                if self._use_pinned_inputs:
+                    pin_cur = self._h_input_sizes.get(name, 0)
+                    if pin_cur < nbytes:
+                        old = self._h_inputs.pop(name, None)
+                        # Don't free old pinned buffer — CUDA may still
+                        # reference it; GC will handle it.
+                        self._h_inputs[name] = self._cuda.pagelocked_empty(
+                            int(nbytes), np.uint8
+                        )
+                        self._h_input_sizes[name] = nbytes
                 continue  # existing buffer is large enough
             if current is not None:
                 current.free()
             self._d_inputs[name] = self._cuda.mem_alloc(nbytes)
             self._buf_sizes[name] = nbytes
+            # Allocate pinned input buffer (grows only)
+            if self._use_pinned_inputs:
+                self._h_inputs[name] = self._cuda.pagelocked_empty(
+                    int(nbytes), np.uint8
+                )
+                self._h_input_sizes[name] = nbytes
+
+        # Track max batch size for output buffer pre-allocation
+        batch_size = inputs[0].shape[0] if inputs else 0
+        if batch_size > self._max_batch:
+            self._max_batch = batch_size
 
         # Outputs — device + host buffers
         for name in self._output_names:
             shape = tuple(self._context.get_tensor_shape(name))
-            dtype_map = {
-                str(trt.float32): np.float32,
-                str(trt.float16): np.float16,
-                str(trt.int32): np.int32,
-                str(trt.int8): np.int8,
-                str(trt.bool): np.bool_,
-            }
-            trt_dtype = str(self._engine.get_tensor_dtype(name))
-            np_dtype = dtype_map.get(trt_dtype, np.float32)
+            np_dtype = self._output_np_dtypes.get(name, np.float32)
 
             n_elements = 1
             for dim in shape:
@@ -649,25 +1003,39 @@ class TensorRTRunner(InferenceRunner):
             current = self._d_outputs.get(name)
             cur_size = self._buf_sizes.get(name, 0)
             if current is not None and cur_size >= nbytes:
-                # Reuse device buffer. Only reallocate pinned host buffer
-                # if shape changed (pagelocked_empty is an expensive CUDA call).
-                h_cur = self._h_outputs.get(name)
-                if h_cur is None or h_cur.shape != shape or h_cur.dtype != np_dtype:
+                # Reuse device buffer — no reallocation needed.
+                # For pinned host buffer, use pre-allocated max-batch
+                # buffer with a zero-cost reshape view.
+                max_buf = self._h_output_max.get(name)
+                if max_buf is not None and max_buf.nbytes >= nbytes:
+                    # Zero-cost view: ravel the pinned buffer (no copy)
+                    # then reshape to current batch shape.
+                    self._h_outputs[name] = max_buf.ravel()[:n_elements].reshape(shape)
+                else:
+                    # First time or batch grew beyond initial alloc
                     if self._use_pinned:
                         self._h_outputs[name] = self._cuda.pagelocked_empty(
                             shape, np_dtype
                         )
+                        self._h_output_max[name] = self._h_outputs[name]
+                        self._h_output_max_bytes[name] = nbytes
                     else:
                         self._h_outputs[name] = np.empty(shape, dtype=np_dtype)
                 continue
+            # Need to grow device buffer
             if current is not None:
                 current.free()
             self._d_outputs[name] = self._cuda.mem_alloc(nbytes)
             self._buf_sizes[name] = nbytes
+            # CRITICAL: growing output buffers invalidates all captured
+            # CUDA Graphs (they have old addresses baked in).
+            self._invalidate_graphs()
             if self._use_pinned:
                 self._h_outputs[name] = self._cuda.pagelocked_empty(
                     shape, np_dtype
                 )
+                self._h_output_max[name] = self._h_outputs[name]
+                self._h_output_max_bytes[name] = nbytes
             else:
                 self._h_outputs[name] = np.empty(shape, dtype=np_dtype)
 

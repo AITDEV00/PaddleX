@@ -20,7 +20,7 @@ from typing import Any
 from docling_core.types.doc import DoclingDocument
 
 from .._core.config import CPU_POOL_SIZE
-from .._core.image import load_image_from_bytes, to_rgb
+from .._core.image import load_image_from_bytes
 from .._core.inference import run_layout_detection
 from .._core.latency import LatencyTracer
 from .converter.service import PaddleXToDoclingConverter
@@ -117,11 +117,13 @@ async def convert_image(
 
     try:
         with tracer.stage("image_load"):
-            # cv2.imdecode + resize is fast (~2ms for typical images).
-            # run_in_executor overhead (thread scheduling + context switch)
-            # adds ~0.2-0.5ms — not worth it for such a quick operation.
-            # Run inline on the event loop.
-            image = load_image_from_bytes(image_data)
+            # cv2.imdecode + resize is CPU-bound (~2ms for typical images).
+            # Under high concurrency with WORKERS=1, running this inline
+            # blocks the event loop and starves the inference queue.
+            # Offload to thread pool so other requests can proceed.
+            image = await loop.run_in_executor(
+                _cpu_pool, load_image_from_bytes, image_data
+            )
     except Exception as e:
         logger.exception("Failed to load image")
         elapsed = time.perf_counter() - t0
@@ -144,27 +146,28 @@ async def convert_image(
         logger.warning("Layout detection returned 0 boxes for %s", filename)
 
     with tracer.stage("convert_to_docling"):
-        # Offload DoclingDocument construction to thread pool (CPU-bound)
-        # Convert BGR→RGB only here — the converter needs RGB for page
-        # metadata, but layout detection works on BGR (PaddleX handles it).
-        image_rgb = to_rgb(image)
+        # Offload DoclingDocument construction to thread pool (CPU-bound).
+        # NOTE: to_rgb() removed — the converter only uses image.shape[:2]
+        # for page dimensions (h, w).  The BGR→RGB cvtColor copy was
+        # wasting ~1-3 ms + 10-50 MB allocation per request for nothing.
         doc = await loop.run_in_executor(
             _cpu_pool,
             functools.partial(
                 _converter.convert,
-                boxes=boxes, image=image_rgb, filename=filename, page_no=1,
+                boxes=boxes, image=image, filename=filename, page_no=1,
             ),
         )
 
-    # Export and confidence are independent — run them concurrently
+    # Export and confidence computation.
+    # compute_confidence is sub-ms pure Python (mean/min of scores) —
+    # inline it instead of dispatching to thread pool (saves 0.2-0.5 ms
+    # of executor dispatch overhead).
     with tracer.stage("export_formats"):
         export_task = loop.run_in_executor(
             _cpu_pool, functools.partial(_export_to_formats, doc, to_formats),
         )
-        confidence_task = loop.run_in_executor(
-            _cpu_pool, functools.partial(_converter.compute_confidence, boxes),
-        )
-        result, confidence = await asyncio.gather(export_task, confidence_task)
+        confidence = _converter.compute_confidence(boxes)
+        result = await export_task
 
     tracer.finish()
 

@@ -70,7 +70,7 @@ STARTUP_TIMEOUT = int(os.environ.get("HPS_API_STARTUP_TIMEOUT", "300"))
 # also increases p50 latency due to queuing.  For best throughput on a
 # single GPU, depth=4-6 is a good starting point (allows 4-6 requests
 # overlapping image-load + GPU + post-processing).
-PIPELINE_DEPTH = int(os.environ.get("HPS_API_PIPELINE_DEPTH", "4"))
+PIPELINE_DEPTH = int(os.environ.get("HPS_API_PIPELINE_DEPTH", "16"))
 
 # Dedicated thread pool for CPU-bound pipeline stages (image decode,
 # DoclingDocument conversion, format export).  Keeping these off the
@@ -87,8 +87,13 @@ CPU_POOL_SIZE = int(os.environ.get("HPS_API_CPU_POOL_SIZE", "8"))
 # For direct backend throughput: BATCH_SIZE=2-4 with short timeout
 # amortizes kernel launch overhead and improves GPU utilization without
 # adding much latency under load.
-BATCH_SIZE = int(os.environ.get("HPS_API_BATCH_SIZE", "2"))
+BATCH_SIZE = int(os.environ.get("HPS_API_BATCH_SIZE", "4"))
 BATCH_TIMEOUT_MS = float(os.environ.get("HPS_API_BATCH_TIMEOUT_MS", "3"))
+
+# Dedicated thread pool for pre/post-processing stages in the inference
+# pipeline.  Must be >= 2 to overlap pre(N+1) with post(N).  Default 4
+# allows 2 pre + 2 post concurrent without queueing.
+PRE_POST_POOL_SIZE = int(os.environ.get("HPS_API_PRE_POST_POOL_SIZE", "4"))
 
 # ─── Inference Backend ────────────────────────────────────────────────────────
 # "triton" (default) — Connect to a Triton Inference Server via gRPC.
