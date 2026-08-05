@@ -1,9 +1,22 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# PaddleX HPS Docling API — LEAN2 Dockerfile (minimal CUDA-runtime base)
+# PaddleX HPS Docling API — LEAN Dockerfile (minimal CUDA-runtime base)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # Purpose: a MUCH smaller direct/TensorRT image than Dockerfile.lean (25.4 GB).
 # FINAL SIZE: ~7.0 GB (validated end-to-end with the Docling client).
+#
+# DESIGN: build-the-engine-at-runtime (UNIVERSAL across GPU architectures).
+# This image does NOT bake in a hardware-specific TensorRT engine. Instead it
+# ships the model ONNX + Paddle params and builds a TRT engine from ONNX on
+# FIRST startup on the target GPU (FP16), caching it in /tmp. Because the
+# engine is built at runtime, this single image works on ANY recent NVIDIA
+# GPU (RTX 4090 sm_89, RTX 5090 sm_120, H200 sm_90a, A100 sm_80, L40S sm_89 …)
+# as long as the host driver / container runtime is new enough for the CUDA
+# version. There is no per-architecture bake step.
+#
+# (Earlier builds baked an sm_120 / RTX 5090 FP8 engine to shrink the image,
+# which made it architecture-specific. Building at runtime costs a ~3 min
+# first-boot engine build but removes that limitation.)
 #
 # Dockerfile.lean builds on the official Paddle image, which is a `-devel`
 # image (19.1 GB): it ships the full CUDA build toolchain (nvcc, gcc-13, cmake,
@@ -35,30 +48,35 @@
 # Direct backend needs (verified against api_compat source):
 #   • paddlepaddle-gpu 3.3.1  — transplanted from the paddle base
 #   • paddlex                — model wrapper (pip install, PyPI is reachable)
-#   • tensorrt (cu13) 10.16.1.11 — deserialize pre-built engine
+#   • tensorrt (cu13) 10.16.1.11 — build engine from ONNX at runtime + deserialize
 #   • pycuda                 — direct CUDA in-process backend
 #   • docling/FastAPI deps (requirements.api_compat.txt)
 #   • websockets             — docling client websocket watcher (test only)
 # NOT needed: tritonserver, tritonclient, nvidia-modelopt, onnx, onnxsim,
 # polygraphy, paddle2onnx (build-time only), nvcc / gcc / build toolchain.
 #
-# TRT engines are hardware-specific: build/commit the engine ON the target
-# GPU, then bake it in. The pre-built inference_fp8.trt is sm_120 (RTX 5090).
-# For H200 (sm_90a / CUDA 12.6) use the cuda12.6 runtime base + tensorrt_cu12.
+# Runtime engine build: the runner (tensorrt_runner.py) builds the engine from
+# the shipped inference.onnx on first boot using tensorrt + pycuda ONLY. For
+# fp16 this needs no nvidia-modelopt / onnx tooling at runtime. The FP16 engine
+# is cached at /opt/models/.../inference_fp16.trt (or HPS_API_ENGINE_DIR).
+# NOTE: we keep ALL TensorRT builder-resource kernels (do NOT strip to one sm_
+# arch) so the runtime can build on whichever GPU it lands on.
 #
 # Build (from PaddleX repo root):
 #   docker build \
 #     -t paddlex-hps-api-lean2 \
-#     -f deploy/hps/docker/blackwell/lean/Dockerfile \
+#     -f deploy/hps/docker/cuda13/lean/Dockerfile \
 #     .
 #
 # Run (GPU enabled, direct backend):
 #   docker run -d --name paddlex-hps-lean2 \
 #     --device nvidia.com/gpu=all \
 #     --env HPS_API_BACKEND=direct \
-#     --env HPS_API_PRECISION=fp8 \
+#     --env HPS_API_PRECISION=fp16 \
+#     --env HPS_API_STARTUP_TIMEOUT=300 \
 #     -p 8082:8080 \
 #     paddlex-hps-api-lean2
+#   (First boot builds the TRT engine from ONNX, ~3 min, then caches it.)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -147,10 +165,10 @@ RUN --mount=type=bind,from=paddle-base,source=/usr/local/lib/python3.10/dist-pac
     mkdir -p /usr/local/lib/python3.10/dist-packages/paddle \
     && cp -a /paddle-src/. /usr/local/lib/python3.10/dist-packages/paddle/ \
     # ── Strip compute kernels NOT used by the TRT direct backend ──
-    # The api_compat "direct" backend deserializes a pre-built TensorRT engine
-    # and runs inference in-process via pycuda + TensorRT. It NEVER calls
-    # paddle's phi/flash-attention/MKL/CINN kernels, so paddle/libs only needs
-    # the tiny loader stubs (libpaddle.so, libphi.so) + libcommon + mkl blas.
+    # The api_compat "direct" backend runs inference in-process via pycuda +
+    # TensorRT (engine built at runtime). It NEVER calls paddle's
+    # phi/flash-attention/MKL/CINN kernels, so paddle/libs only needs the tiny
+    # loader stubs (libpaddle.so, libphi.so) + libcommon + mkl blas.
     # (Verified live: Docling SUCCESS with all of these removed.)
     && cd /usr/local/lib/python3.10/dist-packages/paddle/libs \
     && rm -f libphi_core.so libphi_gpu.so libflashattn.so libflashattnv3.so \
@@ -189,11 +207,10 @@ COPY --from=paddle-base /usr/local/lib/python3.10/dist-packages/numpy.libs \
 ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/local/lib/python3.10/dist-packages/tensorrt_libs:/usr/local/lib/python3.10/dist-packages/paddle/libs:/usr/local/cuda-13.0/targets/x86_64-linux/lib:/usr/local/cuda/lib64
 
 # ─── 3. TensorRT Python bindings + pycuda (runtime only) ────────────────────
-# No torch, no modelopt, no onnx/paddle2onnx/polygraphy — the runtime only
-# DESERIALIZES the pre-built engine.
-# tensorrt_cu13==10.16.1.11 (serialization 240) matches inference_fp8.trt.
-# Using >=10.16 would resolve to 11.1.0 (243), which cannot load 10.16.x
-# engines. 10.16.1 supports FP8 on Blackwell / RTX 5090 (sm_120).
+# No torch, no modelopt, no onnx/paddle2onnx/polygraphy — the runtime builds
+# the engine from ONNX on first boot (fp16) and deserializes it afterward.
+# tensorrt_cu13==10.16.1.11 (serialization 240). Using >=10.16 would resolve
+# to 11.1.0 (243), which cannot load 10.16.x engines.
 #
 # NOTE: the apt python3-pip is 22.0.2, which rejects the tensorrt_cu13 wheel
 # ("filename has 'tensorrt-cu13', but metadata has 'unknown'"). Upgrade pip
@@ -201,23 +218,15 @@ ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/local/lib
 # pycuda has no prebuilt cp310 wheel and CANNOT be compiled here (the minimal
 # base lacks CUDA headers like cudaProfiler.h). So it is built in the BUILDER
 # stage (which has full CUDA) and COPYed in below.
+#
+# We KEEP ALL TensorRT builder-resource kernels (all sm_* archs + ptx). This
+# image builds the engine at runtime on the TARGET GPU, so we cannot strip to
+# a single arch. We only drop the Windows DLLs (never used on Linux, ~1.8 GB).
 RUN --mount=type=cache,target=/tmp/pip-cache \
     pip install --no-cache-dir -U "pip>=26" \
     && pip install --no-cache-dir "tensorrt_cu13==10.16.1.11" \
-    # Strip unused TensorRT builder resources. The wheel ships both Windows
-    # (*.win_*) and Linux builder-resource kernels for MANY GPU archs. Our
-    # runtime only DESERIALIZES a pre-built sm_120 (RTX 5090) engine, so:
-    #   - drop the Windows DLLs (never used on Linux, ~1.8 GB)
-    #   - drop builder-resource kernels for archs OTHER than sm_120 (~1.6 GB);
-    #     keep sm_120 so the runtime can still (re)build an engine on the GPU.
-    # Leaves core libnvinfer/plugin/onnxparser + sm120 resource (~0.9 GB).
     && cd /usr/local/lib/python3.10/dist-packages/tensorrt_libs \
     && rm -f *_win_*.so.* \
-    # NOTE: the build RUN uses /bin/sh (dash), which does NOT do brace
-    # expansion — so use an explicit find with !-exclude for archs we keep.
-    && find . -maxdepth 1 -name 'libnvinfer_builder_resource_sm*.so.10.16.1' \
-        ! -name '*_sm120.so.10.16.1' -delete \
-    && rm -f libnvinfer_builder_resource_ptx.so.10.16.1 \
     && du -sh .
 
 # pycuda built in the builder stage (full CUDA headers). COPY the package dir
@@ -271,8 +280,14 @@ COPY deploy/hps/api_compat/ /opt/api_compat/
 COPY deploy/hps/scripts/run_api.sh /opt/scripts/run_api.sh
 RUN chmod +x /opt/scripts/run_api.sh
 
-# ─── 6. Model weights + pre-built TRT engine ───────────────────────────────
+# ─── 6. Model weights + ONNX (NO pre-built .trt) ──────────────────────────
+# Bake in ONNX + Paddle params. Any pre-built inference_fp8.trt / fp16.trt in
+# the model dir are hardware-specific (e.g. sm_120 / RTX 5090) and would not
+# deserialize on other GPUs. DELETE them so the runner builds the engine from
+# ONNX on first boot on the TARGET GPU (universal across architectures).
 COPY models/PP-DocLayoutV3/ /opt/models/PP-DocLayoutV3/
+RUN rm -f /opt/models/PP-DocLayoutV3/inference_fp8.trt \
+          /opt/models/PP-DocLayoutV3/inference_fp16.trt
 
 # ─── 7. Non-root user (UID 10000) ───────────────────────────────────────────
 RUN groupadd -g 10000 runner \
@@ -293,11 +308,11 @@ ENV PADDLEX_HOME=/tmp/paddlex-home
 ENV PADDLE_PDX_CACHE_HOME=/tmp/paddlex-home/.paddlex
 ENV HPS_API_ENGINE_DIR=/tmp/paddlex-engines
 ENV HPS_API_MODEL=PP-DocLayoutV3
-ENV HPS_API_PRECISION=fp8
+ENV HPS_API_PRECISION=fp16
 ENV HPS_API_BACKEND=direct
 ENV HPS_API_DEVICE_ID=0
-# Pre-built engine loads in ~2s (no ONNX→TRT build). 60s is plenty.
-ENV HPS_API_STARTUP_TIMEOUT=60
+# First boot builds the TRT engine from ONNX (~3 min for FP16). 300s margin.
+ENV HPS_API_STARTUP_TIMEOUT=300
 ENV PYTHONPATH=/opt
 
 USER runner
@@ -305,7 +320,7 @@ WORKDIR /opt
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
     CMD curl -sf http://localhost:8080/health-check || exit 1
 
 ENTRYPOINT ["/opt/scripts/run_api.sh"]

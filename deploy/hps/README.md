@@ -21,7 +21,7 @@ comments: true
 
 如需了解如何使用构建好的镜像与打包好的 SDK 启动服务器和调用服务，可参考 [PaddleX 服务化部署指南](https://paddlepaddle.github.io/PaddleX/latest/pipeline_deploy/serving.html)。
 
-> **Docling API 专用镜像（custom `direct`/TensorRT 后端）见 [`docker/`](./docker/) 目录**，按 GPU 架构组织（`blackwell/` RTX 5090、`hopper/` H200/H100/A100/L40S、`legacy/` Triton-server 变体），每个架构下再分 `base/`（NGC 基础镜像）、`full/`（完整 API 镜像）、`lean/`（精简运行时镜像）。构建与验证说明见 [`docs/lean_image_design_plan.md`](./docs/lean_image_design_plan.md) 与 [`BUILD_NGC.md`](./BUILD_NGC.md)。
+> **Docling API 专用镜像（custom `direct`/TensorRT 后端）见 [`docker/`](./docker/) 目录**，按 **CUDA 版本**组织（`cuda13/` CUDA 13.0、`cuda12/` CUDA 12.6、`legacy/` Triton-server 变体），每个 CUDA 版本下再分 `base/`（NGC 基础镜像）、`full/`（完整 API 镜像）、`lean/`（精简运行时镜像）。镜像按 CUDA 版本隔离（容器内的 CUDA 运行时需 ≤ 宿主机驱动支持的最高 CUDA）；lean 镜像在首次启动时于目标 GPU 上构建 TensorRT 引擎，因此在同一 CUDA 版本内对各 GPU 架构通用。构建与验证说明见 [`docs/lean_image_design_plan.md`](./docs/lean_image_design_plan.md) 与 [`BUILD_NGC.md`](./BUILD_NGC.md)。
 
 ## 1. 镜像构建
 

@@ -7,7 +7,7 @@
 # Usage:
 #   ./deploy/hps/scripts/slim_loop.sh <tag> [dockerfile] [host_port]
 #     tag          image tag to build/run (default: paddlex-hps-api-lean2)
-#     dockerfile   -f arg (default deploy/hps/docker/blackwell/lean/Dockerfile)
+#     dockerfile   -f arg (default deploy/hps/docker/cuda13/lean/Dockerfile)
 #     host_port    host port to publish 8080 -> (default 8081)
 #
 # Env overrides:
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 TAG="${1:-paddlex-hps-api-lean2}"
-DOCKERFILE="${2:-deploy/hps/docker/blackwell/lean/Dockerfile}"
+DOCKERFILE="${2:-deploy/hps/docker/cuda13/lean/Dockerfile}"
 PORT="${3:-8081}"
 CONTAINER="slim-$(echo "$TAG" | tr -cd '[:alnum:]')-test"
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"

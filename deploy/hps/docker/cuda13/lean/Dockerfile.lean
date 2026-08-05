@@ -28,7 +28,7 @@
 # Build (from PaddleX repo root):
 #   docker build \
 #     -t paddlex-hps-api-lean \
-#     -f deploy/hps/docker/blackwell/lean/Dockerfile \
+#     -f deploy/hps/docker/cuda13/lean/Dockerfile \
 #     .
 #
 # Run (GPU enabled, direct backend):

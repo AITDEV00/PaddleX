@@ -21,20 +21,27 @@ The custom Dockerfiles in this directory bypass the Baidu dependency entirely by
 
 ## Two Variants
 
-| File | PaddlePaddle | CUDA | cuDNN | Target GPU | sm_ |
+| File | PaddlePaddle | CUDA | cuDNN | Target | sm_ |
 |------|-------------|------|-------|------------|-----|
-| `docker/blackwell/base/Dockerfile` | 3.3.1-cuda13.0-cudnn9.13 | 13.0 | 9.13 | **RTX 5090** (Blackwell) | sm_120 |
-| `docker/hopper/base/Dockerfile` | 3.3.1-cuda12.6-cudnn9.5 | 12.6 | 9.5 | **H200/H100** (Hopper), A100, L40S | sm_90/80/89 |
+| `docker/cuda13/base/Dockerfile` | 3.3.1-cuda13.0-cudnn9.13 | 13.0 | 9.13 | **RTX 50-series** (needs driver ≥ CUDA 13) | sm_120 |
+| `docker/cuda12/base/Dockerfile` | 3.3.1-cuda12.6-cudnn9.5 | 12.6 | 9.5 | **H200/H100**, A100, L40S, RTX 40-series | sm_90/80/89 |
 
 ### Why two variants?
 
-- **Blackwell (RTX 5090, sm_120)** requires CUDA 13.0 — PaddlePaddle 3.0.0 (the
+- **CUDA 13 (RTX 50-series / Blackwell, sm_120)** requires CUDA 13.0 — PaddlePaddle 3.0.0 (the
   previous version) lacks sm_120 kernels, causing silent inference failures
   (CUDA error 209, 0 results returned). PaddlePaddle 3.3.1 + CUDA 13.0 adds
   sm_120 kernels.
-- **Hopper (H200, sm_90)** works with CUDA 12.6, which is the **exact same**
+- **CUDA 12 (H200, sm_90)** works with CUDA 12.6, which is the **exact same**
   CUDA/cuDNN version as Triton 24.10. This means no extra runtime libraries need
   to be copied, making the build simpler and the image ~1.5 GB smaller.
+
+> **Why separate by CUDA version, not GPU:** the container's CUDA runtime libs
+> must be ≤ the maximum CUDA the **host driver** supports. An H200 host whose
+> driver tops out at CUDA 12.8 cannot run a CUDA 13.0 image, even though the
+> engine is architecture-agnostic. Hence the `cuda13/` and `cuda12/` folders.
+> The lean images build the TensorRT engine at runtime, so each is universal
+> across GPU archs within its CUDA version.
 
 > **Note:** PaddlePaddle does not publish a CUDA 12.8 image. The closest options
 > are 12.6 and 12.9. We chose 12.6 because it matches Triton 24.10 exactly,
@@ -61,12 +68,12 @@ Blocked (not needed by this build):
   - RTX 5090 requires driver ≥ 580 + CUDA 13.0
   - H200 requires driver ≥ 545 + CUDA 12.6
 
-### GPU driver note (RTX 5090 only)
+### GPU driver note (CUDA 13 / RTX 5090 only)
 
 The RTX 5090 (Blackwell, sm_120) host must run driver ≥ 591. The PaddlePaddle
 3.3.1 CUDA 13.0 image includes a **compat `libcuda.so`** at
 `/usr/local/cuda-13.0/compat/` that only supports drivers ≤ 580. The
-`docker/blackwell/base/Dockerfile` handles this by:
+`docker/cuda13/base/Dockerfile` handles this by:
 
 - **NOT copying** the compat directory
 - Setting `LD_LIBRARY_PATH` to exclude it, so the host driver's `libcuda.so`
@@ -84,16 +91,16 @@ cd /path/to/PaddleX
 
 ### 2. Build the image
 
-**For RTX 5090 (Blackwell / sm_120):**
+**For CUDA 13 / RTX 5090 (needs driver ≥ CUDA 13):**
 ```bash
 podman build -t paddlex-hps-ngc \
-  -f deploy/hps/docker/blackwell/base/Dockerfile .
+  -f deploy/hps/docker/cuda13/base/Dockerfile .
 ```
 
-**For H200 / H100 / A100 / L40S (Hopper / Ampere / Ada):**
+**For CUDA 12.6 (H200 / H100 / A100 / L40S / RTX 40-series):**
 ```bash
 podman build -t paddlex-hps-ngc-cuda12 \
-  -f deploy/hps/docker/hopper/base/Dockerfile .
+  -f deploy/hps/docker/cuda12/base/Dockerfile .
 ```
 
 Build takes ~10 minutes on first run (pulling base images), ~2 minutes on
@@ -225,7 +232,7 @@ Stage 5 (runtime)        ─── Copy server.sh, pipeline_config, model_repo +
 
 ### CUDA 13.0 variant — library coexistence
 
-The CUDA 13.0 variant (`docker/blackwell/base/Dockerfile`) copies CUDA 13.0 runtime `.so` files
+The CUDA 13.0 variant (`docker/cuda13/base/Dockerfile`) copies CUDA 13.0 runtime `.so` files
 into the Triton image. These coexist with Triton's CUDA 12.6 libraries because
 they use **different sonames**:
 
@@ -239,7 +246,7 @@ they use **different sonames**:
 cuDNN 9.13 libs are copied to `/usr/local/cudnn-9.13/` (separate directory) to
 avoid clobbering Triton's cuDNN 9.5 files (both use soname `.so.9`).
 
-The CUDA 12.6 variant (`docker/hopper/base/Dockerfile`) does **not** need any of this —
+The CUDA 12.6 variant (`docker/cuda12/base/Dockerfile`) does **not** need any of this —
 PaddlePaddle's CUDA 12.6 + cuDNN 9.5 exactly matches Triton 24.10.
 
 ### Model weights

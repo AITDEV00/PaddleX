@@ -2,27 +2,27 @@
 # PaddleX HPS Docling API — LEAN H200 Dockerfile (minimal CUDA-runtime base)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Purpose: a MUCH smaller direct/TensorRT image for Hopper GPUs than
-# Dockerfile (docker/hopper/full) which is built on the NGC Triton base (22 GB).
-# FINAL SIZE: ~7 GB (same approach as docker/blackwell/lean which reached 7.07 GB
+# Purpose: a MUCH smaller direct/TensorRT image for CUDA 12.6 hosts than
+# Dockerfile (docker/cuda12/full) which is built on the NGC Triton base (22 GB).
+# FINAL SIZE: ~7 GB (same approach as docker/cuda13/lean which reached 7.07 GB
 # on RTX 5090).
 #
-# Target GPUs (sm_90 / Hopper, CUDA 12.6):
+# Target GPUs (CUDA 12.6):
 #   - NVIDIA H200  (sm_90a)  — FP16
 #   - NVIDIA H100  (sm_90a)  — FP16
 #   - NVIDIA A100  (sm_80)   — FP16
 #   - NVIDIA L40S  (sm_89)   — FP16
+#   - NVIDIA RTX 4090 (sm_89) — FP16
 #
-# KEY DIFFERENCE from the Blackwell (RTX 5090) lean:
-#   There is NO pre-built .trt engine baked in. RTX 5090 engines are sm_120 and
-#   will NOT deserialize on sm_90. So this image ships the ONNX + Paddle params
-#   and BUILDS the engine from ONNX on first startup (FP16, ~3 min), cached in
-#   /tmp for subsequent restarts.
+# KEY DESIGN: NO pre-built .trt engine baked in. This image ships the ONNX +
+# Paddle params and BUILDS the engine from ONNX on first startup (FP16, ~3 min),
+# cached in /tmp for subsequent restarts. Because the engine is built at
+# runtime, the image works on any CUDA 12.6-capable GPU architecture.
 #
-#   Because the engine is built AT RUNTIME, we must KEEP the TRT builder
-#   resource for sm_90 (Hopper) — it is needed to (re)build the engine on the
-#   target GPU. We still strip: Windows DLLs, other-arch builder resources,
-#   unused paddle compute kernels, C++ headers, training subpackages.
+#   Because the engine is built AT RUNTIME, we must KEEP ALL the TRT builder
+#   resource kernels (all sm_* archs + ptx) — they are needed to (re)build the
+#   engine on whatever CUDA 12.6 GPU the image lands on. We only strip: Windows
+#   DLLs, unused paddle compute kernels, C++ headers, training subpackages.
 #
 #   FP16 is used (not FP8): the modelopt FP8 ONNX has mixed-type Cast nodes
 #   that TRT 10.16 STRONGLY_TYPED cannot parse. FP16 via the original
@@ -39,7 +39,7 @@
 # Build (from PaddleX repo root):
 #   docker build \
 #     -t paddlex-hps-api-h200-lean \
-#     -f deploy/hps/docker/hopper/lean/Dockerfile \
+#     -f deploy/hps/docker/cuda12/lean/Dockerfile \
 #     .
 #
 # Run (GPU enabled, direct backend, FP16):
@@ -132,10 +132,14 @@ RUN --mount=type=bind,from=paddle-base,source=/usr/local/lib/python3.10/dist-pac
 # Drop the stub libcuda.so (307M) shipped in /usr/local/cuda-12.6/compat.
 RUN rm -rf /usr/local/cuda-12.6/compat
 
+# NOTE: the CUDA 12.6 paddle base ships nvidia/cublas, cuda_cccl, cuda_cupti,
+# cuda_nvrtc, cuda_runtime, cudnn, cufft, cufile, curand, cusolver, cusparse,
+# nccl, nvjitlink, nvtx — but NO nvidia/cusparselt (unlike the CUDA 13.0 base).
+# The runtime base already provides cublas/cublasLt/cudart/curand/cusolver/
+# cusparse/nvJitLink/nvrtc in /usr/local/cuda-12.6/targets. We copy only the
+# packages the runtime base does NOT already have: cudnn + nccl.
 COPY --from=paddle-base /usr/local/lib/python3.10/dist-packages/nvidia/cudnn \
     /usr/local/lib/python3.10/dist-packages/nvidia/cudnn
-COPY --from=paddle-base /usr/local/lib/python3.10/dist-packages/nvidia/cusparselt \
-    /usr/local/lib/python3.10/dist-packages/nvidia/cusparselt
 COPY --from=paddle-base /usr/local/lib/python3.10/dist-packages/nvidia/nccl \
     /usr/local/lib/python3.10/dist-packages/nvidia/nccl
 COPY --from=paddle-base /usr/local/lib/python3.10/dist-packages/paddlepaddle_gpu-3.3.1.dist-info \
@@ -156,10 +160,12 @@ ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/local/lib
 # tensorrt_cu12==10.16.1.11 (serialization 240) matches the H200 engines.
 # 10.16.1 supports FP8 on Hopper (H200/H100, sm_90a) and Ada (L40S, sm_89).
 #
-# We KEEP the sm_90 builder resource (needed to build the engine from ONNX on
-# first boot) but strip: Windows DLLs (never used on Linux) and builder
-# resources for OTHER archs (sm_120/sm_100/sm_80/sm_89 are not target CPUs
-# — but keep sm_90 for Hopper). Keep sm_90 + core libs (~1 GB).
+# ★ UNIVERSAL design: this image builds the engine from ONNX at runtime on the
+# TARGET GPU, so we KEEP ALL TensorRT builder-resource kernels (all sm_* archs
+# + ptx). We cannot strip to a single arch (e.g. sm_90) — the engine must build
+# on whichever CUDA 12.6 GPU it lands on (H200 sm_90a, A100 sm_80, L40S/RTX4090
+# sm_89, RTX 5090 sm_120 …). We only drop the Windows DLLs (never used on
+# Linux). This mirrors docker/cuda13/lean which does the same.
 #
 # pip 22.0.2 rejects the tensorrt wheel ("unknown metadata") — upgrade pip first.
 # pycuda has no prebuilt cp310 wheel and cannot compile here (no CUDA headers);
@@ -167,12 +173,10 @@ ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/local/lib
 RUN --mount=type=cache,target=/tmp/pip-cache \
     pip install --no-cache-dir -U "pip>=26" \
     && pip install --no-cache-dir "tensorrt_cu12==10.16.1.11" \
-    # Strip unused TensorRT builder resources (Windows + non-sm90 archs).
+    # Keep ALL arch builder kernels (universal build-at-runtime); only strip
+    # the Windows DLLs (never loaded on Linux, ~1.8 GB savings).
     && cd /usr/local/lib/python3.10/dist-packages/tensorrt_libs \
     && rm -f *_win_*.so.* \
-    && find . -maxdepth 1 -name 'libnvinfer_builder_resource_sm*.so.10.16.1' \
-        ! -name '*_sm90.so.10.16.1' -delete \
-    && rm -f libnvinfer_builder_resource_ptx.so.10.16.1 \
     && du -sh .
 
 # pycuda built in the builder stage (full CUDA headers). COPY the package dir

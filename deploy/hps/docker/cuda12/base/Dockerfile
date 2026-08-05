@@ -1,27 +1,36 @@
-# Custom PaddleX HPS Dockerfile — built on NGC Triton + PaddlePaddle GPU
+# Custom PaddleX HPS Dockerfile — NGC Triton + PaddlePaddle GPU (CUDA 12.6 variant)
+#
+# This is the CUDA 12.6 variant (for H200/H100/A100/L40S, RTX 40-series).
+# The CUDA 13.0 variant lives at docker/cuda13/base (for RTX 50-series,
+# requires driver >= CUDA 13).
+#
+# PaddlePaddle 3.3.1-gpu-cuda12.6-cudnn9.5 uses the SAME CUDA 12.6 + cuDNN 9.5
+# as Triton 24.10-py3, so no extra runtime libraries need to be copied.
+# This makes the build simpler and the image smaller than the CUDA 13.0 variant.
+#
+# Target GPUs:
+#   - NVIDIA H200 (sm_90 / Hopper) — including MIG partitions
+#   - NVIDIA H100 (sm_90 / Hopper)
+#   - NVIDIA A100 (sm_80 / Ampere)
+#   - NVIDIA L40S (sm_89 / Ada)
 #
 # Bypasses Baidu (bcebos.com) which is blocked by Etisalat.
 # Uses Docker Hub paddlepaddle/paddle image to extract paddlepaddle-gpu,
 # and NGC Triton 24.10-py3 as the base (Python 3.10 + CUDA 12.6 + TensorRT 10.5).
 #
-# PaddlePaddle 3.3.1 is compiled for CUDA 13.0 + cuDNN 9.13 and includes sm_120
-# (Blackwell / RTX 5090) kernels.  CUDA 13.0 runtime libs are copied into the
-# Triton image alongside the existing CUDA 12.6 libs — they coexist because
-# they use different sonames (.so.13 vs .so.12).
-#
 # Build context: PaddleX repo root (e.g. /home/jyao/ADEO/OCR/PaddleX)
-#   podman build -t paddlex-hps-ngc -f deploy/hps/docker/blackwell/base/Dockerfile .
+#   podman build -t paddlex-hps-ngc-cuda12 -f deploy/hps/docker/cuda12/base/Dockerfile .
 #
 # Requires BuildKit / DOCKER_BUILDKIT=1 for cache mounts.
 # Podman enables BuildKit by default.
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Stage 1: Extract paddlepaddle-gpu + CUDA 13.0 runtime libs from the official image
+# Stage 1: Extract paddlepaddle-gpu from the official PaddlePaddle Docker image
 # ═══════════════════════════════════════════════════════════════════════════════
-# PaddlePaddle 3.3.1, CUDA 13.0, cuDNN 9.13, Python 3.10
-# Has sm_120 (Blackwell) kernels — works on RTX 5090
+# PaddlePaddle 3.3.1, CUDA 12.6, cuDNN 9.5, Python 3.10
+# Has sm_90 (Hopper/H200) + sm_80 (Ampere/A100) + sm_89 (Ada/L40S) kernels
 # We only COPY from this image, never rebuild this stage
-FROM docker.io/paddlepaddle/paddle:3.3.1-gpu-cuda13.0-cudnn9.13 AS paddle-source
+FROM docker.io/paddlepaddle/paddle:3.3.1-gpu-cuda12.6-cudnn9.5 AS paddle-source
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -29,6 +38,7 @@ FROM docker.io/paddlepaddle/paddle:3.3.1-gpu-cuda13.0-cudnn9.13 AS paddle-source
 # ═══════════════════════════════════════════════════════════════════════════════
 # Triton 24.10-py3 = last Triton image with Python 3.10 + CUDA 12.6
 # Triton 2.51.0, Python 3.10.12, CUDA 12.6, cuDNN 9.5, TensorRT 10.5
+# CUDA 12.6 + cuDNN 9.5 EXACTLY matches the PaddlePaddle image → no extra libs needed
 FROM nvcr.io/nvidia/tritonserver:24.10-py3 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -66,38 +76,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 FROM base AS deps
 
 # Copy paddlepaddle-gpu from the PaddlePaddle image (2.9GB, ABI-compatible:
-# both images use Python 3.10)
+# both images use Python 3.10 + CUDA 12.6 + cuDNN 9.5 — exact match)
+# No need to copy CUDA/cuDNN runtime libs: Triton 24.10 already has them.
 COPY --from=paddle-source /usr/local/lib/python3.10/dist-packages/paddle /usr/local/lib/python3.10/dist-packages/paddle
 COPY --from=paddle-source /usr/local/lib/python3.10/dist-packages/paddlepaddle_gpu-3.3.1.dist-info /usr/local/lib/python3.10/dist-packages/paddlepaddle_gpu-3.3.1.dist-info
-
-# Copy CUDA 13.0 runtime libraries (soname .so.13 — coexists with Triton's .so.12)
-# These are needed by paddlepaddle-gpu 3.3.1's libpaddle_inference.so
-# CRITICAL: Do NOT copy /usr/local/cuda-13.0/compat/ — it contains an outdated
-# libcuda.so (supports driver ≤580, but host has 591.86). The host driver's
-# libcuda.so (provided via CDI) is used instead.
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcudart.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcublas.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcublasLt.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcufft.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcurand.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcusolver.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcusparse.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libnvJitLink.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-COPY --from=paddle-source /usr/local/cuda-13.0/targets/x86_64-linux/lib/libnvrtc.so* /usr/local/cuda-13.0/targets/x86_64-linux/lib/
-
-# Copy cuDNN 9.13 libraries (soname .so.9 — Triton's cuDNN is 9.5, also .so.9)
-# Copy to a separate directory to avoid clobbering Triton's cuDNN 9.5 files
-COPY --from=paddle-source /usr/lib/x86_64-linux-gnu/libcudnn*.so.9.13.0 /usr/local/cudnn-9.13/
-RUN cd /usr/local/cudnn-9.13 \
-    && ln -sf libcudnn.so.9.13.0 libcudnn.so.9 \
-    && ln -sf libcudnn.so.9.13.0 libcudnn.so \
-    && ln -sf libcudnn_adv.so.9.13.0 libcudnn_adv.so.9 \
-    && ln -sf libcudnn_cnn.so.9.13.0 libcudnn_cnn.so.9 \
-    && ln -sf libcudnn_engines_precompiled.so.9.13.0 libcudnn_engines_precompiled.so.9 \
-    && ln -sf libcudnn_engines_runtime_compiled.so.9.13.0 libcudnn_engines_runtime_compiled.so.9 \
-    && ln -sf libcudnn_graph.so.9.13.0 libcudnn_graph.so.9 \
-    && ln -sf libcudnn_heuristic.so.9.13.0 libcudnn_heuristic.so.9 \
-    && ln -sf libcudnn_ops.so.9.13.0 libcudnn_ops.so.9
 
 # Copy requirements files FIRST (small, rarely change → pip layer stays cached)
 COPY deploy/hps/server_env/requirements/gpu.txt /tmp/requirements.txt
@@ -123,10 +105,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ─── TensorRT engine dependencies ───────────────────────────────────────────
 # Native TRT runner: pycuda for GPU memory, paddle2onnx for Paddle→ONNX export,
 # onnx/onnxsim/polygraphy for graph manipulation, nvidia-modelopt for INT8/FP8
-# quantization.  tensorrt_cu13 upgrades TRT to 10.16.x for FP8 on Blackwell.
+# quantization.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install \
-        "tensorrt_cu13>=10.16" \
         pycuda \
         paddle2onnx onnx onnxsim polygraphy \
         nvidia-modelopt
@@ -171,12 +152,9 @@ RUN chmod +x /paddlex/server.sh
 ENV PADDLEX_HPS_DEVICE_TYPE=gpu
 ENV PADDLEX_HPS_PIPELINE_CONFIG_PATH=/paddlex/pipeline_config.yaml
 ENV PADDLEX_HPS_USE_HPIP=
-# LD_LIBRARY_PATH: CUDA 13.0 runtime libs first (paddle needs .so.13),
-# then paddle's own libs, then Triton's CUDA 12.6 / nvidia paths.
-# CRITICAL: /usr/local/cuda-13.0/compat is EXCLUDED — its libcuda.so only
-# supports driver ≤580, but host has 591.86. Without this exclusion, GPU
-# detection fails (device_count returns 0).
-ENV LD_LIBRARY_PATH=/usr/local/cuda-13.0/targets/x86_64-linux/lib:/usr/local/cudnn-9.13:/usr/local/lib/python3.10/dist-packages/paddle/libs:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+# LD_LIBRARY_PATH: paddle's own libs + Triton's existing CUDA 12.6 / nvidia paths.
+# No CUDA 13.0 compat workaround needed — CUDA 12.6 is the native version here.
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/paddle/libs:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
 
 WORKDIR /paddlex
 

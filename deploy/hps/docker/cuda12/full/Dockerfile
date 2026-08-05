@@ -35,7 +35,7 @@
 # Build (from PaddleX repo root):
 #   docker build \
 #     -t paddlex-hps-api-h200 \
-#     -f deploy/hps/docker/hopper/full/Dockerfile \
+#     -f deploy/hps/docker/cuda12/full/Dockerfile \
 #     .
 #
 # Run (GPU enabled):

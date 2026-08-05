@@ -1,31 +1,42 @@
 # Making the HPS API Image Truly Slim — Design Plan (BUILT & VALIDATED)
 
-> **Status:** ✅ **BUILT & VALIDATED — FINAL (Blackwell): `docker/blackwell/lean/Dockerfile` → `paddlex-hps-api-lean2` = 7.02 GB** (2026-08-05).
+> **Status:** ✅ **BUILT & VALIDATED — UNIVERSAL (build-engine-at-runtime): `docker/cuda13/lean/Dockerfile` → `paddlex-hps-api-lean2` = 7.02 GB** (2026-08-05).
 >
-> The **Blackwell (RTX 5090)** lean is the validated winner over the full
-> image (25.4 GB). The transplant approach (tiny `nvidia/cuda:13.0.1-runtime-ubuntu22.04`
-> base + paddle runtime copied from the official base) plus aggressive
-> kernel-stripping achieved an **18.4 GB / 72% reduction** (25.4 → 7.02 GB),
-> and **validates end-to-end with the Docling client**.
+> The **CUDA 13** lean is the validated winner over the full image (25.4 GB).
+> The transplant approach (tiny `nvidia/cuda:13.0.1-runtime-ubuntu22.04` base +
+> paddle runtime copied from the official base) plus aggressive kernel-stripping
+> achieved an **18.4 GB / 72% reduction** (25.4 → 7.02 GB), and **validates
+> end-to-end with the Docling client**.
 >
-> An **H200 / Hopper** lean variant exists at
-> `docker/hopper/lean/Dockerfile` (CUDA 12.6, tensorrt_cu12, FP16, engine
-> built from ONNX on first boot — no sm_120 engine baked in). It is not yet
-> built/validated (no H200 on this host).
+> **Universal by design (2026-08-05):** the lean now builds the
+> TensorRT engine **at runtime from ONNX on first boot** (FP16), rather than
+> baking a hardware-specific engine. Because the engine is built on the target
+> GPU, this single image works across architectures (RTX 5090 sm_120, RTX 4090
+> sm_89, H200 sm_90a, A100 sm_80, L40S sm_89 …) for a given CUDA version —
+> there is no per-architecture bake step. Cost: a ~3 min first-boot engine build.
+>
+> Images are separated by **CUDA version** (not GPU architecture):
+> `docker/cuda13/lean/Dockerfile` (CUDA 13.0, needs driver ≥ CUDA 13) and
+> `docker/cuda12/lean/Dockerfile` (CUDA 12.6, tensorrt_cu12, FP16, same
+> build-at-runtime design). The CUDA 12.6 one is the choice for H200/H100
+> hosts (driver caps at CUDA 12.8). The CUDA 12.6 lean is not yet
+> built/validated (no such host available here).
 >
 > Summary of the progression (single-stage → final):
 > | Image | Size | Note |
 > |-------|------|------|
 > | single-stage | 37.1 GB | baseline |
 > | multi-stage | 32.2 GB | split build/runtime |
-> | `Dockerfile.lean` → `docker/blackwell/lean/Dockerfile.lean` | 25.4 GB | paddle base, drop Triton |
+> | `Dockerfile.lean` → `docker/cuda13/lean/Dockerfile.lean` | 25.4 GB | paddle base, drop Triton |
 > | `Dockerfile.lean2` (LD fix) | 15.1 GB | transplant on nvidia runtime base |
 > | + TRT win/arch strip | 13.2 → 11.1 → 9.72 GB | drop Windows DLLs, other-arch builder resources, redundant nvidia/cu13 |
 > | **`Dockerfile.lean2` (kernel strip)** | **7.02 GB** | **strip paddle compute kernels + compat, single-layer copy** |
 
-> **Note (2026-08-05):** the validated winner is now the canonical
-> `docker/blackwell/lean/Dockerfile` (renamed from `Dockerfile.lean2`); the old
-> 25.4 GB single-stage attempt is kept at `docker/blackwell/lean/Dockerfile.lean`.
+> **Note (2026-08-06):** the validated lean is the canonical
+> `docker/cuda13/lean/Dockerfile` (renamed from `Dockerfile.lean2`) and now
+> builds the engine at runtime; the old 25.4 GB single-stage attempt is kept at
+> `docker/cuda13/lean/Dockerfile.lean`. Folders were renamed by CUDA version
+> (`blackwell`→`cuda13`, `hopper`→`cuda12`).
 >
 > The Triton-server deployment mode is intentionally NOT supported by the lean
 > images (they require the full Triton base).
@@ -111,7 +122,7 @@ pycuda._driver.RuntimeError: cuInit failed: no CUDA-capable device is detected
 
 ## 1. Why the current slim image is still 32.2 GB
 
-The multi-stage `docker/blackwell/full/Dockerfile.multistage` split the build toolchain
+The multi-stage `docker/cuda13/full/Dockerfile.multistage` split the build toolchain
 (modelopt/onnx/polygraphy/paddle2onnx) out of the runtime, but **both stages
 inherit the same 26.6 GB base `paddlex-hps-ngc`**. The base is a Triton
 Inference Server image that bundles far more than the direct/TensorRT path
@@ -149,7 +160,7 @@ Target: **~10-14 GB** (CUDA base ~5 GB + paddle 2.9 GB + TRT 4.5 GB + deps).
 
 ## 3. Approach: keep multi-stage, swap the base
 
-Reuse the already-validated structure of `docker/blackwell/full/Dockerfile.multistage`,
+Reuse the already-validated structure of `docker/cuda13/full/Dockerfile.multistage`,
 but replace both `FROM` lines with a lean CUDA base:
 
 ```dockerfile
@@ -203,7 +214,7 @@ Add `torch==2.13.0+cu130` **only** if you need `HPS_GPU_PRE=1` GPU pre.
   unused) — optional, must verify runtime links with `ldd`.
 
 ### 4.5 Validation checklist
-1. Build: `docker build -t paddlex-hps-api-lean -f deploy/hps/docker/blackwell/lean/Dockerfile .`
+1. Build: `docker build -t paddlex-hps-api-lean -f deploy/hps/docker/cuda13/lean/Dockerfile .`
 2. `docker images paddlex-hps-api-lean` → expect ~10-14 GB.
 3. Run: `--env HPS_API_BACKEND=direct`, port 8080.
 4. Health: `/health-check` returns 200.
@@ -229,7 +240,7 @@ Add `torch==2.13.0+cu130` **only** if you need `HPS_GPU_PRE=1` GPU pre.
 ## 6. Result (implemented)
 
 **Created:**
-- `deploy/hps/docker/blackwell/lean/Dockerfile` — new lean multi-stage Dockerfile (built on the
+- `deploy/hps/docker/cuda13/lean/Dockerfile` — new lean multi-stage Dockerfile (built on the
   official `paddlepaddle/paddle:3.3.1-gpu-cuda13.0-cudnn9.13` base, not the
   Triton NGC image).
 - Built & tagged `paddlex-hps-api-lean:latest` → **25.4 GB**.
@@ -257,9 +268,13 @@ approach ~10-14 GB, start from `nvidia/cuda:13.0.1-devel-ubuntu22.04` and
 layers (~4.5 GB) and OpenCV/scipy are still required at runtime.
 
 **Current validated state:**
-- `docker/blackwell/full/Dockerfile` — original single-stage (37.1 GB).
-- `docker/blackwell/full/Dockerfile.multistage` — slim, direct-validated (32.2 GB).
-- `docker/blackwell/lean/Dockerfile.lean` — historical lean (25.4 GB, kept for reference).
-- `docker/blackwell/lean/Dockerfile` — canonical lean, direct-validated (7.02 GB).
-- `docker/hopper/lean/Dockerfile` — H200/Hopper lean (CUDA 12.6, FP16, ~7 GB target, not yet built — no H200 host).
+- `docker/cuda13/full/Dockerfile` — original single-stage (37.1 GB).
+- `docker/cuda13/full/Dockerfile.multistage` — slim, direct-validated (32.2 GB).
+- `docker/cuda13/lean/Dockerfile.lean` — historical lean (25.4 GB, kept for reference).
+- `docker/cuda13/lean/Dockerfile` — canonical lean, direct-validated (7.02 GB).
+  **Universal build-at-runtime design** (FP16, engine built on first boot, works on
+  any recent NVIDIA GPU architecture within CUDA 13 — no per-arch bake).
+- `docker/cuda12/lean/Dockerfile` — CUDA 12.6 lean (tensorrt_cu12, FP16, same
+  engine-at-runtime design, ~7 GB target, not yet built — no such host available
+  here). This is the one to use for H200/H100 hosts whose driver caps at CUDA 12.8.
 - `deploy/hps/scripts/slim_loop.sh` — build → measure → run → Docling-client loop for lean images.

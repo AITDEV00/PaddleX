@@ -24,7 +24,7 @@
 # Build (from PaddleX repo root):
 #   docker build \
 #     -t paddlex-hps-api-slim \
-#     -f deploy/hps/docker/blackwell/full/Dockerfile.multistage \
+#     -f deploy/hps/docker/cuda13/full/Dockerfile.multistage \
 #     .
 #
 # Run (GPU enabled):
