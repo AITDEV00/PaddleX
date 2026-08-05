@@ -21,6 +21,8 @@ comments: true
 
 如需了解如何使用构建好的镜像与打包好的 SDK 启动服务器和调用服务，可参考 [PaddleX 服务化部署指南](https://paddlepaddle.github.io/PaddleX/latest/pipeline_deploy/serving.html)。
 
+> **Docling API 专用镜像（custom `direct`/TensorRT 后端）见 [`docker/`](./docker/) 目录**，按 GPU 架构组织（`blackwell/` RTX 5090、`hopper/` H200/H100/A100/L40S、`legacy/` Triton-server 变体），每个架构下再分 `base/`（NGC 基础镜像）、`full/`（完整 API 镜像）、`lean/`（精简运行时镜像）。构建与验证说明见 [`docs/lean_image_design_plan.md`](./docs/lean_image_design_plan.md) 与 [`BUILD_NGC.md`](./BUILD_NGC.md)。
+
 ## 1. 镜像构建
 
 本阶段主要介绍镜像构建的整体流程及关键步骤。

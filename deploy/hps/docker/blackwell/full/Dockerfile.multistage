@@ -1,0 +1,196 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# PaddleX HPS Docling API — MULTI-STAGE Dockerfile (GPU, TensorRT, non-root)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Single-stage size problem: the runtime only needs to DESERIALIZE a pre-built
+# TRT engine, but the old single-stage image bundled the entire build/quantize
+# toolchain (nvidia-modelopt + onnx + onnxsim + polygraphy + paddle2onnx ~
+# several GB of redundant CUDA libs). This multi-stage file splits:
+#
+#   Stage 1 (builder)  — full toolchain + model, produces the engine (or holds
+#                        the build artifacts needed to rebuild it).
+#   Stage 2 (runtime)  — minimal image: tensorrt bindings + pycuda + API deps
+#                        + pre-built .trt engine. NO modelopt/onnx/polygraphy.
+#
+# Result: ~32.2 GB (vs ~37.1 GB single-stage). The remaining size is dominated
+# by the base image (paddlex-hps-ngc, 26.6 GB) which bundles the Triton server
+# (5.6 GB) + CUDA 12.6/13.0 + paddle + TRT.  The multi-stage split only trims
+# the on-top build toolchain.  To go genuinely small, see
+# docs/lean_image_design_plan.md (fresh CUDA base, direct-backend-only).
+#
+# TRT engines are hardware-specific: build/commit the engine ON the target GPU,
+# then bake it in. This variant targets RTX 5090 (sm_120 / Blackwell, CUDA 13).
+#
+# Build (from PaddleX repo root):
+#   docker build \
+#     -t paddlex-hps-api-slim \
+#     -f deploy/hps/docker/blackwell/full/Dockerfile.multistage \
+#     .
+#
+# Run (GPU enabled):
+#   docker run -d --name paddlex-hps-slim \
+#     --device nvidia.com/gpu=all \
+#     --env NVIDIA_VISIBLE_DEVICES=0 \
+#     --env HPS_API_PRECISION=fp8 \
+#     -p 8080:8080 \
+#     paddlex-hps-api-slim
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STAGE 1 — BUILDER: quantization + engine toolchain (not shipped to runtime)
+# ──────────────────────────────────────────────────────────────────────────────
+FROM localhost/paddlex-hps-ngc:latest AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_CACHE_DIR=/tmp/pip-cache
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# System tools needed to run a quantization/engine-build on this host GPU.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Full TensorRT Python bindings + quantization/export toolchain.
+# tensorrt_cu13 pinned to 10.16.1.11 (serialization 240) to match the
+# pre-built engine. Quantization tooling is BUILD-TIME only.
+RUN --mount=type=cache,target=/tmp/pip-cache \
+    pip install --no-cache-dir \
+        "tensorrt_cu13==10.16.1.11" \
+        pycuda \
+        paddle2onnx onnx onnxsim polygraphy \
+        nvidia-modelopt
+
+# Model weights + ONNX source for (re)building the engine.
+COPY models/PP-DocLayoutV3/ /opt/models/PP-DocLayoutV3/
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STAGE 2 — RUNTIME (final, slim)
+# ═══════════════════════════════════════════════════════════════════════════════
+FROM localhost/paddlex-hps-ngc:latest AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_CACHE_DIR=/tmp/pip-cache
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# ─── 1. System packages (curl for HEALTHCHECK) ──────────────────────────────
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── 2a. Runtime-only: TensorRT Python bindings + pycuda ──────────────────────
+# NOTE: no torch, no nvidia-modelopt, no onnx/paddle2onnx/polygraphy here.
+# Runtime only DESERIALIZES the pre-built engine.  The base NGC image still
+# has TRT 10.5 C++ libs; pinning the pip tensorrt_cu13 ensures the correct
+# 10.16.1 libs (serialization 240) are used to load the engine.
+#
+# tensorrt_cu13==10.16.1.11 (serialization version 240) — matches the
+# pre-built inference_fp8.trt. Using >=10.16 resolves to 11.1.0 (243),
+# which cannot deserialize engines built by 10.16.x.
+RUN --mount=type=cache,target=/tmp/pip-cache \
+    pip install --no-cache-dir \
+        "tensorrt_cu13==10.16.1.11" \
+        pycuda
+
+# ─── 2a-cleanup. Remove system TRT 10.5 C++ libs (match single-stage behavior)
+RUN rm -f /usr/lib/x86_64-linux-gnu/libnvinfer.so \
+          /usr/lib/x86_64-linux-gnu/libnvinfer.so.10 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.10 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvonnxparser.so \
+          /usr/lib/x86_64-linux-gnu/libnvonnxparser.so.10 \
+          /usr/lib/x86_64-linux-gnu/libnvonnxparser.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_builder_resource.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_builder_resource_win.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_dispatch.so \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_dispatch.so.10 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_dispatch.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_lean.so \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_lean.so.10 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_lean.so.10.5.0 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_vc_plugin.so \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_vc_plugin.so.10 \
+          /usr/lib/x86_64-linux-gnu/libnvinfer_vc_plugin.so.10.5.0 \
+    && ldconfig
+
+# LD_LIBRARY_PATH: prioritize pip tensorrt_libs, then paddle libs, then system.
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/tensorrt_libs:/usr/local/lib/python3.10/dist-packages/paddle/libs:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+
+# ─── 2b. API Python dependencies (pinned) ───────────────────────────────────
+COPY deploy/hps/requirements.api_compat.txt /tmp/requirements.api_compat.txt
+RUN --mount=type=cache,target=/tmp/pip-cache \
+    pip install --no-cache-dir -r /tmp/requirements.api_compat.txt \
+    && rm /tmp/requirements.api_compat.txt
+
+# ─── 2c. Patch PaddleX with custom TensorRT engine ──────────────────────────
+# Same patch as single-stage: add the custom TensorRTRunner into the
+# installed paddlex wheel so it registers the "tensorrt" engine.
+COPY paddlex/inference/models/engines/tensorrt.py \
+     paddlex/inference/models/runners/tensorrt_runner.py \
+     /tmp/paddlex-patch/
+COPY paddlex/inference/models/object_detection/processors.py \
+     /tmp/paddlex-patch/obj_det_processors.py
+COPY paddlex/inference/models/object_detection/predictor.py \
+     /tmp/paddlex-patch/obj_det_predictor.py
+COPY paddlex/inference/models/layout_analysis/predictor.py \
+     /tmp/paddlex-patch/layout_predictor.py
+COPY paddlex/inference/models/common/vision/processors.py \
+     /tmp/paddlex-patch/vision_processors.py
+COPY deploy/hps/scripts/patch_paddlex_trt.py /tmp/patch_paddlex_trt.py
+RUN python3 /tmp/patch_paddlex_trt.py \
+        /tmp/paddlex-patch \
+        /usr/local/lib/python3.10/dist-packages/paddlex \
+    && rm -rf /tmp/paddlex-patch /tmp/patch_paddlex_trt.py
+
+# ─── 3. Application code ────────────────────────────────────────────────────
+COPY deploy/hps/api_compat/ /opt/api_compat/
+COPY deploy/hps/scripts/run_api.sh /opt/scripts/run_api.sh
+RUN chmod +x /opt/scripts/run_api.sh
+
+# ─── 4. Model weights + pre-built TRT engine ────────────────────────────────
+# Only the pre-built engine (inference_fp8.trt) + ONNX fallback + Paddle
+# params are baked in. The engine is loaded directly at startup — no build.
+COPY models/PP-DocLayoutV3/ /opt/models/PP-DocLayoutV3/
+
+# ─── 5. Non-root user (UID 10000) ───────────────────────────────────────────
+RUN groupadd -g 10000 runner \
+    && useradd -m -s /bin/bash -u 10000 -g 10000 runner
+
+# ─── 6. Model directory accessible to runner (read-only) ────────────────────
+RUN chmod -R a+rX /opt/models /opt/api_compat /opt/scripts
+
+# ─── 7. All writable state → /tmp ───────────────────────────────────────────
+RUN mkdir -p /tmp/paddlex-engines /tmp/paddlex-home \
+    && chown -R runner:runner /tmp/paddlex-engines /tmp/paddlex-home \
+    && chmod 1777 /tmp
+
+ENV PADDLEX_HOME=/tmp/paddlex-home
+ENV HPS_API_ENGINE_DIR=/tmp/paddlex-engines
+ENV HPS_API_MODEL=PP-DocLayoutV3
+ENV HPS_API_PRECISION=fp8
+ENV HPS_API_DEVICE_ID=0
+# Pre-built engine loads in ~2s (no ONNX→TRT build). 60s is plenty.
+ENV HPS_API_STARTUP_TIMEOUT=60
+ENV PYTHONPATH=/opt
+
+USER runner
+WORKDIR /opt
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -sf http://localhost:8080/health-check || exit 1
+
+ENTRYPOINT ["/opt/scripts/run_api.sh"]

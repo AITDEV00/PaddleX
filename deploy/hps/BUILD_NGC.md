@@ -23,8 +23,8 @@ The custom Dockerfiles in this directory bypass the Baidu dependency entirely by
 
 | File | PaddlePaddle | CUDA | cuDNN | Target GPU | sm_ |
 |------|-------------|------|-------|------------|-----|
-| `Dockerfile.ngc` | 3.3.1-cuda13.0-cudnn9.13 | 13.0 | 9.13 | **RTX 5090** (Blackwell) | sm_120 |
-| `Dockerfile.ngc-cuda12` | 3.3.1-cuda12.6-cudnn9.5 | 12.6 | 9.5 | **H200/H100** (Hopper), A100, L40S | sm_90/80/89 |
+| `docker/blackwell/base/Dockerfile` | 3.3.1-cuda13.0-cudnn9.13 | 13.0 | 9.13 | **RTX 5090** (Blackwell) | sm_120 |
+| `docker/hopper/base/Dockerfile` | 3.3.1-cuda12.6-cudnn9.5 | 12.6 | 9.5 | **H200/H100** (Hopper), A100, L40S | sm_90/80/89 |
 
 ### Why two variants?
 
@@ -66,7 +66,7 @@ Blocked (not needed by this build):
 The RTX 5090 (Blackwell, sm_120) host must run driver ≥ 591. The PaddlePaddle
 3.3.1 CUDA 13.0 image includes a **compat `libcuda.so`** at
 `/usr/local/cuda-13.0/compat/` that only supports drivers ≤ 580. The
-`Dockerfile.ngc` handles this by:
+`docker/blackwell/base/Dockerfile` handles this by:
 
 - **NOT copying** the compat directory
 - Setting `LD_LIBRARY_PATH` to exclude it, so the host driver's `libcuda.so`
@@ -87,13 +87,13 @@ cd /path/to/PaddleX
 **For RTX 5090 (Blackwell / sm_120):**
 ```bash
 podman build -t paddlex-hps-ngc \
-  -f deploy/hps/Dockerfile.ngc .
+  -f deploy/hps/docker/blackwell/base/Dockerfile .
 ```
 
 **For H200 / H100 / A100 / L40S (Hopper / Ampere / Ada):**
 ```bash
 podman build -t paddlex-hps-ngc-cuda12 \
-  -f deploy/hps/Dockerfile.ngc-cuda12 .
+  -f deploy/hps/docker/hopper/base/Dockerfile .
 ```
 
 Build takes ~10 minutes on first run (pulling base images), ~2 minutes on
@@ -225,7 +225,7 @@ Stage 5 (runtime)        ─── Copy server.sh, pipeline_config, model_repo +
 
 ### CUDA 13.0 variant — library coexistence
 
-The CUDA 13.0 variant (`Dockerfile.ngc`) copies CUDA 13.0 runtime `.so` files
+The CUDA 13.0 variant (`docker/blackwell/base/Dockerfile`) copies CUDA 13.0 runtime `.so` files
 into the Triton image. These coexist with Triton's CUDA 12.6 libraries because
 they use **different sonames**:
 
@@ -239,7 +239,7 @@ they use **different sonames**:
 cuDNN 9.13 libs are copied to `/usr/local/cudnn-9.13/` (separate directory) to
 avoid clobbering Triton's cuDNN 9.5 files (both use soname `.so.9`).
 
-The CUDA 12.6 variant (`Dockerfile.ngc-cuda12`) does **not** need any of this —
+The CUDA 12.6 variant (`docker/hopper/base/Dockerfile`) does **not** need any of this —
 PaddlePaddle's CUDA 12.6 + cuDNN 9.5 exactly matches Triton 24.10.
 
 ### Model weights

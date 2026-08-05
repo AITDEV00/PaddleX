@@ -18,7 +18,7 @@
 # Build (from PaddleX repo root):
 #   podman build \
 #     -t paddlex-hps-api \
-#     -f deploy/hps/Dockerfile.api_compat \
+#     -f deploy/hps/docker/blackwell/full/Dockerfile \
 #     .
 #
 # Run (internet disabled, GPU enabled):

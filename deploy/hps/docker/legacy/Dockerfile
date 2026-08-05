@@ -13,7 +13,7 @@
 # Build (from PaddleX repo root):
 #   podman build \
 #     -t paddlex-hps-api-triton \
-#     -f deploy/hps/Dockerfile.api_compat_triton \
+#     -f deploy/hps/docker/legacy/Dockerfile \
 #     .
 #
 # Run:
