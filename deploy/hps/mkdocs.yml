@@ -1,0 +1,67 @@
+# PaddleX HPS — standalone MkDocs site
+#
+# Serves the deploy/hps docs (API reference, backend adapter guides) as their
+# own documentation site, independent of the main PaddleX site.
+#
+# Usage:
+#   cd deploy/hps
+#   pip install mkdocs mkdocs-material
+#   mkdocs serve            # local preview at http://127.0.0.1:8000
+#   mkdocs build            # static site in site/
+#
+# The docs/ tree here is self-contained (absolute file paths in the docs point
+# at the source under ../../api_compat), so this site is fully readable on its
+# own.
+site_name: PaddleX HPS — Docling API
+site_description: Docling-compatible serving API + inference backend adapters.
+repo_url: https://github.com/PaddlePaddle/PaddleX
+docs_dir: docs
+site_dir: site
+
+nav:
+  - Overview: README.md
+  - API Reference:
+      - Convert & model endpoints: API_REFERENCE.md
+  - Architecture:
+      - Backend architecture: architecture/backend_architecture.md
+      - Adding a backend: architecture/adding_a_backend.md
+  - Design:
+      - API compat methodology: design/api_compat_methodology.md
+      - Lean image design: design/lean_image_design_plan.md
+      - FP8 model weights: design/pp_doclayoutv3_fp8_model_weights.md
+  - Scratchpads:
+      - Architecture latency map: scratchpads/architecture_latency_map.md
+      - Code smell detection: scratchpads/code_smell_detection_technique.md
+      - GPU util logic map: scratchpads/gpu_util_logic_map.md
+      - Latency analysis: scratchpads/latency_analysis_scratchpad.md
+      - Latency by layer: scratchpads/latency_by_layer.md
+      - Logic mapping technique: scratchpads/logic_mapping_technique.md
+      - RTX5090 FP8 optimization: scratchpads/rtx5090_fp8_optimization_scratchpad.md
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.expand
+    - navigation.top
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - toc:
+      permalink: true
+
+plugins:
+  - search

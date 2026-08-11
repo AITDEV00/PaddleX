@@ -249,11 +249,18 @@ RUN --mount=type=cache,target=/tmp/pip-cache \
         decorator astor
 
 # ─── 4b. API Python dependencies (pinned) ──────────────────────────────────
-COPY deploy/hps/requirements.api_compat.txt /tmp/requirements.api_compat.txt
+# Backend-mode-aware split (see requirements.base.txt / .direct.txt /
+# .triton.txt):
+#   • Section 4 above already installs the direct/in-process runtime
+#     (paddlex, opencv, scikit, scipy, faiss) — mirroring requirements.direct.txt.
+#   • This stage installs the shared service layer (fastapi/granian/docling)
+#     from requirements.base.txt, used by every mode.
+#   • A Triton-only image would install requirements.base.txt +
+#     requirements.triton.txt (gRPC client) and skip the direct runtime.
+COPY deploy/hps/requirements.base.txt /tmp/requirements.base.txt
 RUN --mount=type=cache,target=/tmp/pip-cache \
-    pip install --no-cache-dir -r /tmp/requirements.api_compat.txt \
-    && pip install --no-cache-dir "orjson>=3.10.0" \
-    && rm /tmp/requirements.api_compat.txt
+    pip install --no-cache-dir -r /tmp/requirements.base.txt \
+    && rm /tmp/requirements.base.txt
 
 # ─── 4c. Patch PaddleX with custom TensorRT engine ─────────────────────────
 # Copy the new TensorRT engine module + vectorized processors into the

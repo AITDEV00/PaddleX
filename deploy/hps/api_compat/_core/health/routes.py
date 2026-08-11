@@ -17,7 +17,13 @@ from importlib.metadata import version as pkg_version
 from fastapi import APIRouter, HTTPException
 
 from ..inference import state
-from .schema import HealthCheckResponse, ReadinessResponse
+from .schema import (
+    HealthCheckResponse,
+    ModelInventoryResponse,
+    ModelMetadataResponse,
+    ModelEntry,
+    ReadinessResponse,
+)
 
 router = APIRouter(tags=["health"])
 
@@ -73,3 +79,51 @@ async def version():
         "docling_slim": docling_slim_ver,
         "docling_core": docling_core_ver,
     }
+
+
+# ─── Triton-compatible /v1/models ─────────────────────────────────────────────
+#
+# Triton exposes a model inventory at /v1/models.  These routes implement a
+# compatible subset that works regardless of backend:
+#   - direct backend → reports the in-process PaddleX model(s) from
+#                      AppState.list_models()
+#   - triton backend → reports the models loaded in the Triton server
+#
+# This lets a client written against Triton's inventory API discover the
+# PP-DocLayoutV3 model id without caring which backend is active.
+
+@router.get("/v1/models", response_model=ModelInventoryResponse)
+async def list_models():
+    """List all models (Triton-compatible)."""
+    models = state.list_models()
+    return ModelInventoryResponse(
+        models=[ModelEntry(**m) for m in models]
+    )
+
+
+@router.get("/v1/models/{name}", response_model=ModelMetadataResponse)
+async def get_model_metadata(name: str):
+    """Get metadata for a single model (Triton-compatible)."""
+    status = state.get_model_status(name)
+    if status is None:
+        raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
+    return ModelMetadataResponse(
+        name=name,
+        versions=[status.get("version", "1")],
+        platform=status.get("platform"),
+        backend=status.get("backend"),
+        inputs=status.get("inputs", []),
+        outputs=status.get("outputs", []),
+    )
+
+
+@router.get("/v1/models/{name}/ready")
+async def get_model_ready(name: str):
+    """Readiness of a single model (Triton-compatible)."""
+    status = state.get_model_status(name)
+    if status is None:
+        raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
+    ready = status.get("ready", status.get("state") == "READY")
+    if not ready:
+        raise HTTPException(status_code=503, detail=f"Model '{name}' not ready")
+    return {"status": "ok"}

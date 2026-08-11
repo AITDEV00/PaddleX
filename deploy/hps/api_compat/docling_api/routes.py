@@ -18,6 +18,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import Response
 
 from .._core.image import fetch_image_from_url
 from .schema import (
@@ -33,6 +34,7 @@ from .service import (
     ERR_FETCH,
     convert_image,
     error_response,
+    render_debug_image,
 )
 from .task_store import task_store
 
@@ -114,7 +116,16 @@ def _reject_unsupported_target(target_kind: str | None) -> None:
     response_model=ConvertDocumentResponse,
     status_code=status.HTTP_200_OK,
 )
-async def convert_source(request: ConvertSourcesRequest):
+async def convert_source(
+    request: ConvertSourcesRequest,
+    debug: bool = Query(
+        default=False,
+        description=(
+            "Debug mode: return the image with detected bounding boxes "
+            "drawn (PNG) instead of a conversion response."
+        ),
+    ),
+):
     """Convert documents from HTTP URLs or base64-encoded file sources.
 
     Note: Only the first source is processed. The API accepts a list for
@@ -122,6 +133,9 @@ async def convert_source(request: ConvertSourcesRequest):
 
     S3/Azure/GCS/GoogleDrive source kinds are accepted in the schema for
     compatibility but return 501 Not Implemented.
+
+    When ``debug=true``, runs layout detection and returns the annotated
+    image (PNG) instead of the Docling conversion.
     """
     to_formats = request.options.to_formats
     source = request.sources[0]
@@ -147,6 +161,14 @@ async def convert_source(request: ConvertSourcesRequest):
             f"Only 'http' and 'file' sources are accepted.",
         )
 
+    if debug:
+        png = await render_debug_image(image_data, filename)
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={"X-Debug-Model": "PP-DocLayoutV3"},
+        )
+
     return await convert_image(image_data, filename, to_formats)
 
 
@@ -158,6 +180,7 @@ async def convert_source(request: ConvertSourcesRequest):
 async def convert_file(
     file: UploadFile = File(...),  # noqa: B008 - FastAPI requires File() as default
     to_formats: list[str] | None = Form(default=None),  # noqa: B008
+    debug: bool = Form(default=False),  # noqa: B008 - debug: return annotated PNG
 ):
     """Convert an uploaded file (multipart/form-data).
 
@@ -169,10 +192,20 @@ async def convert_file(
         to_formats=md&to_formats=json
 
     FastAPI collects these into a ``list[str]``.  Defaults to
-    ``[MARKDOWN]`` when omitted.
+    ``[MARKDOWN]`` when omitted.  When ``debug=1``, returns the annotated
+    image (PNG) instead of the conversion response.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename required")
+
+    if debug:
+        image_data = await file.read()
+        png = await render_debug_image(image_data, file.filename)
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={"X-Debug-Filename": "true"},
+        )
 
     formats = _parse_to_formats(to_formats)
     image_data = await file.read()

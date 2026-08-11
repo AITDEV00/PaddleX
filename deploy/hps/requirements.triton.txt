@@ -1,0 +1,14 @@
+# Triton (external Inference Server) backend dependencies.
+#
+# Use these IN ADDITION to requirements.base.txt when HPS_API_BACKEND=triton.
+# The API server becomes a thin gRPC client to a Triton Inference Server;
+# the model lives in the Triton model repository, NOT in-process.
+#
+# This is the smallest install: no paddle/tensorrt/pycuda in the API container
+# (they're needed on the Triton side instead).  Requires only the gRPC client.
+
+# gRPC client for Triton Inference Server (async)
+tritonclient[grpc]
+
+# The `legacy` image also needs the prebuilt doclayout-v3 Python model for the
+# Triton repo — that lives in deploy/hps/triton/model_repo/, not here.

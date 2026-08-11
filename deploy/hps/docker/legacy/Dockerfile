@@ -51,12 +51,14 @@ RUN --mount=type=cache,target=/tmp/pip-cache \
         nvidia-modelopt
 
 # ─── 2b. Triton client + API Python dependencies ─────────────────────────────
-COPY deploy/hps/requirements.api_compat.txt /tmp/requirements.api_compat.txt
+# Mode-aware split: base (shared service layer) + triton (gRPC client).
+COPY deploy/hps/requirements.base.txt /tmp/requirements.base.txt
+COPY deploy/hps/requirements.triton.txt /tmp/requirements.triton.txt
 RUN --mount=type=cache,target=/tmp/pip-cache \
     pip install --no-cache-dir \
-        "tritonclient[grpc]>=2.30.0" \
-        -r /tmp/requirements.api_compat.txt \
-    && rm /tmp/requirements.api_compat.txt
+        -r /tmp/requirements.base.txt \
+        -r /tmp/requirements.triton.txt \
+    && rm /tmp/requirements.base.txt /tmp/requirements.triton.txt
 
 # ─── 2c. Patch PaddleX with custom TensorRT engine ──────────────────────────
 COPY paddlex/inference/models/engines/tensorrt.py \

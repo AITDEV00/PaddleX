@@ -1,0 +1,16 @@
+# Virtual environments
+.venv/
+.venv-*/
+.venv-cuda13/
+.venv-cuda13-py310/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Test / local artifacts
+test_output/
+*.log

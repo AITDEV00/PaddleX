@@ -97,6 +97,17 @@ async def is_server_ready() -> bool:
         return False
 
 
+async def is_model_ready(model_name: str) -> bool:
+    """Check readiness of a single model (defaults to the configured model)."""
+    try:
+        client = _ensure_client()
+        return bool(await client.is_model_ready(model_name or TRITON_MODEL_NAME))
+    except Exception as e:
+        logger.warning("Triton model readiness check failed (%s): %s",
+                       model_name, e)
+        return False
+
+
 async def detect_layout(image: np.ndarray) -> list[dict[str, Any]]:
     """Send an image to Triton for layout detection.
 

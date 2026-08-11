@@ -96,13 +96,18 @@ BATCH_TIMEOUT_MS = float(os.environ.get("HPS_API_BATCH_TIMEOUT_MS", "3"))
 PRE_POST_POOL_SIZE = int(os.environ.get("HPS_API_PRE_POST_POOL_SIZE", "4"))
 
 # ─── Inference Backend ────────────────────────────────────────────────────────
-# "triton" (default) — Connect to a Triton Inference Server via gRPC.
-#                       Triton's dynamic_batching provides continuous batching,
-#                       non-blocking request queuing, and GPU saturation.
-# "direct"            — Load the PaddleX model in-process (no Triton).
-#                       Uses our custom micro-batching.  Simpler but less
-#                       performant under concurrent load.
-INFERENCE_BACKEND = os.environ.get("HPS_API_BACKEND", "triton")
+# Selects the layout-detection backend.  The API layer only talks to the
+# InferenceBackend interface, so switching is purely a config choice:
+#   "direct" (default) — Load the PaddleX model in-process (TensorRT),
+#                         using our custom micro-batching.  No Triton.
+#   "triton"            — Connect to a Triton Inference Server via gRPC.
+#                         Triton's dynamic_batching provides continuous
+#                         batching, non-blocking request queuing, and GPU
+#                         saturation.
+# Future backends ("custom", "http", "vllm", ...) are added under
+# `_core/backends/` and registered in `create_backend()` — no API-layer
+# changes required.
+INFERENCE_BACKEND = os.environ.get("HPS_API_BACKEND", "direct")
 
 # ─── Triton Server Configuration ──────────────────────────────────────────────
 TRITON_URL = os.environ.get("HPS_TRITON_URL", "localhost:8001")

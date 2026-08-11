@@ -23,6 +23,7 @@ from .._core.config import CPU_POOL_SIZE
 from .._core.image import load_image_from_bytes
 from .._core.inference import run_layout_detection
 from .._core.latency import LatencyTracer
+from .._core.debug import render_debug
 from .converter.service import PaddleXToDoclingConverter
 from .schema import (
     ConversionStatus,
@@ -196,6 +197,50 @@ async def convert_image(
         )},
         confidence=confidence,
     )
+
+
+async def render_debug_image(
+    image_data: bytes,
+    filename: str,
+) -> bytes:
+    """Run layout detection and return the image with boxes drawn (PNG).
+
+    This is the *debug vertical slice* for layout models: instead of
+    building a DoclingDocument, it returns the original image annotated
+    with the detected bounding boxes.  The renderer is selected from the
+    ``_core.debug`` registry by model id, so a future model gets its own
+    debug slice without touching this function.
+
+    Args:
+        image_data: Raw image bytes.
+        filename: Original filename (for logging).
+
+    Returns:
+        PNG-encoded annotated image bytes.
+
+    Raises:
+        RuntimeError: If the image cannot be loaded or inference fails.
+    """
+    loop = asyncio.get_running_loop()
+    image = await loop.run_in_executor(
+        _cpu_pool, load_image_from_bytes, image_data
+    )
+    boxes = await run_layout_detection(image)
+
+    # Determine the active model id and render via the registry.
+    from .._core.config import MODEL_NAME
+    from .._core.inference import state
+
+    model_id = MODEL_NAME
+    png = await loop.run_in_executor(
+        _cpu_pool,
+        functools.partial(render_debug, model_id, image, boxes),
+    )
+    if png is None:
+        raise RuntimeError(
+            f"No debug renderer available for model '{model_id}'"
+        )
+    return png
 
 
 def _call_optional_export(doc: DoclingDocument, method_name: str) -> str | None:

@@ -1,0 +1,32 @@
+# Direct (in-process PaddleX/TensorRT) backend dependencies.
+#
+# Install these IN ADDITION to requirements.base.txt when HPS_API_BACKEND=direct.
+# These pull in the in-process model runtime: paddle (transplanted from the
+# paddle base image in the Dockerfile), the paddlex model wrapper, TensorRT
+# for engine build/serialize, and pycuda for the direct CUDA path.
+#
+# NOTE: paddlepaddle-gpu is intentionally NOT listed here — it is
+# transplanted from the local paddlepaddle/paddle base image (see
+# docker/cuda13/lean/Dockerfile and scripts/setup_devvenv_cuda13.sh) because
+# Paddle's CDN is ISP-blocked on the build host.
+#
+# The API server itself (fastapi/granian/docling) comes from requirements.base.txt.
+
+# Model wrapper + in-process runtime
+paddlex==3.7.2
+# NOTE: TensorRT for cu13 is installed explicitly (PyPI `tensorrt_cu13` with an
+# underscore) by the Dockerfile and scripts/setup_devvenv_cuda13.sh because it
+# must come from the cu13 index.  Commented here to avoid a name mismatch.
+# tensorrt_cu13==10.16.1.11
+pycuda>=2024.1            # direct CUDA in-process backend
+
+# --- Runtime deps the base image bundles (also needed for dev venv) ---
+opencv-contrib-python==4.10.0.84
+scikit-image==0.24.0
+scikit-learn==1.6.1
+scipy==1.15.2
+faiss-cpu>=1.8
+pycocotools>=2
+pypdfium2>=4.30.0
+decorator
+astor
