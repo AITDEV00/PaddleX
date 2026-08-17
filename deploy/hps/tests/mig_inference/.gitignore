@@ -1,0 +1,13 @@
+# Testing scripts (keep these tracked)
+# !*.py
+
+# Inputs / source data (large, generated, or user-provided)
+input/
+pdf_pages/
+*.pdf
+
+# Result / output artifacts (JSON, bboxes, annotated images)
+*.json
+bbox_output/
+bbox_output_cu13/
+pdf_batch_bbox/
