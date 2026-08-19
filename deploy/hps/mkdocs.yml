@@ -29,6 +29,8 @@ nav:
       - API compat methodology: design/api_compat_methodology.md
       - Lean image design: design/lean_image_design_plan.md
       - FP8 model weights: design/pp_doclayoutv3_fp8_model_weights.md
+  - Guides:
+      - Mistral OCR usage guide: mistral_ocr_usage_guide.md
   - Scratchpads:
       - Architecture latency map: scratchpads/architecture_latency_map.md
       - Code smell detection: scratchpads/code_smell_detection_technique.md

@@ -39,9 +39,10 @@
 #   # Login to Harbor explicitly
 #   make harbor-login
 #
-# Image tags follow the scheme  paddlex-hps-layout-cu<CUDA>-<variant>  (e.g.
-# paddlex-hps-layout-cu13-lean, paddlex-hps-layout-cu12-lean). Override with
-# TAG=... on the command line if you want a custom tag.
+# Images are named  paddlex-hps  with tags  layout-cu<CUDA>-<variant>[-<arch>].
+# The optional <arch> segment (sm90a/sm120) marks that a pre-built TRT engine
+# for that GPU arch is baked into the image (e.g. paddlex-hps:layout-cu12-lean-sm90a
+# carries an H200/H100 sm_90a engine). Override with TAG=... for a custom tag.
 #
 # To use `docker` instead of `podman`, pass `ENGINE=docker`.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -57,16 +58,18 @@ CUDA     ?= cuda13
 VARIANT  ?= lean
 TAG      ?=
 
-# Default image tags per CUDA version + variant. Consistent scheme:
-#   paddlex-hps-layout-cu<CUDA>-<variant>
-# (e.g. paddlex-hps-layout-cu13-lean, paddlex-hps-layout-cu12-lean).
-TAG_cuda13_base   = paddlex-hps-layout-cu13-base
-TAG_cuda13_full   = paddlex-hps-layout-cu13-full
-TAG_cuda13_lean   = paddlex-hps-layout-cu13-lean
-TAG_cuda12_base   = paddlex-hps-layout-cu12-base
-TAG_cuda12_full   = paddlex-hps-layout-cu12-full
-TAG_cuda12_lean   = paddlex-hps-layout-cu12-lean
-TAG_legacy_legacy = paddlex-hps-layout-triton
+# Image name is constant; the tag carries function-cuda-variant[-arch].
+IMAGE_NAME  := paddlex-hps
+
+# Default image tags per CUDA version + variant. Scheme:
+#   layout-cu<CUDA>-<variant>   (+ -sm90a/-sm120 when a TRT engine is baked in)
+TAG_cuda13_base   = layout-cu13-base
+TAG_cuda13_full   = layout-cu13-full
+TAG_cuda13_lean   = layout-cu13-lean-sm120
+TAG_cuda12_base   = layout-cu12-base
+TAG_cuda12_full   = layout-cu12-full
+TAG_cuda12_lean   = layout-cu12-lean-sm90a
+TAG_legacy_legacy = layout-triton
 
 # Resolve the full dockerfile path for a (CUDA, VARIANT) pair.
 # special-cases: multistage -> full/Dockerfile.multistage ; legacy -> legacy/Dockerfile (no subfolder)
@@ -83,13 +86,14 @@ tag_name = $(TAG_$(1)_$(2))
 # assignments (set below) or from the command line. The image tag is computed
 # HERE (inside the recipe) so target-specific CUDA/VARIANT are in scope.
 define build-recipe
-	@tag="$(if $(TAG),$(TAG),$(if $(call tag_name,$(CUDA),$(VARIANT)),$(call tag_name,$(CUDA),$(VARIANT)),paddlex-hps-$(CUDA)-$(VARIANT)))"; \
+	@tag="$(if $(TAG),$(TAG),$(if $(call tag_name,$(CUDA),$(VARIANT)),$(call tag_name,$(CUDA),$(VARIANT)),layout-$(CUDA)-$(VARIANT)))"; \
+	full="$(IMAGE_NAME):$$tag"; \
 	f="$(call dockerfile,$(CUDA),$(VARIANT))"; \
 	if test ! -f "$$f"; then \
 	  echo "ERROR: no Dockerfile at $$f (CUDA=$(CUDA) VARIANT=$(VARIANT))"; exit 1; \
 	fi; \
-	echo ">>> Building $(ENGINE) image '$$tag' from $$f"; \
-	cd "$(REPO_ROOT)" && $(ENGINE) build -t "$$tag" -f "$$f" .
+	echo ">>> Building $(ENGINE) image '$$full' from $$f"; \
+	cd "$(REPO_ROOT)" && $(ENGINE) build -t "$$full" -f "$$f" .
 endef
 
 # Generic target — builds whatever (CUDA, VARIANT) is currently selected.
@@ -128,7 +132,7 @@ cuda12-base cuda12-full cuda12-lean legacy: build
 # push target is unambiguous (target-specific vars from `make cuda12-lean ...`
 # do NOT propagate to this target's recipe):
 #
-#   make cuda12-lean                       # build  paddlex-hps-layout-cu12-lean
+#   make cuda12-lean                       # build  paddlex-hps:layout-cu12-lean-sm90a
 #   make harbor-upload CUDA=cuda12 VARIANT=lean    # push it to Harbor
 #
 #   make harbor-login                     # login (or set HARBOR_PASS non-interactive)
@@ -137,8 +141,8 @@ REPO_PATH   ?= openinnovationai/platform/mlops/mlops-serving
 HARBOR_USER  ?= custom-images
 HARBOR_PASS  ?= CustomImages123
 HARBOR_REPO  := $(REGISTRY)/$(REPO_PATH)
-IMAGE_TAG    := $(if $(TAG),$(TAG),$(if $(call tag_name,$(CUDA),$(VARIANT)),$(call tag_name,$(CUDA),$(VARIANT)),paddlex-hps-layout-$(CUDA)-$(VARIANT)))
-HARBOR_FULL  := $(HARBOR_REPO)/$(IMAGE_TAG)
+IMAGE_TAG    := $(if $(TAG),$(TAG),$(if $(call tag_name,$(CUDA),$(VARIANT)),$(call tag_name,$(CUDA),$(VARIANT)),layout-$(CUDA)-$(VARIANT)))
+HARBOR_FULL  := $(HARBOR_REPO)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 harbor-login:
 	@echo ">>> Logging into Harbor ($(HARBOR_REPO))..."
@@ -149,8 +153,8 @@ harbor-login:
 	fi
 
 harbor-tag:
-	@echo ">>> Tagging '$(IMAGE_TAG)' -> '$(HARBOR_FULL)'"
-	@$(ENGINE) tag $(IMAGE_TAG) $(HARBOR_FULL)
+	@echo ">>> Tagging '$(IMAGE_NAME):$(IMAGE_TAG)' -> '$(HARBOR_FULL)'"
+	@$(ENGINE) tag $(IMAGE_NAME):$(IMAGE_TAG) $(HARBOR_FULL)
 
 harbor-upload: harbor-tag
 	@echo ">>> Pushing '$(HARBOR_FULL)' to Harbor..."
@@ -177,12 +181,13 @@ help:
 	@echo "    CUDA:    cuda13 | cuda12 | legacy"
 	@echo "    VARIANT: base | full | lean | legacy | multistage"
 	@echo ""
-	@echo "  Image tags:  paddlex-hps-layout-cu<CUDA>-<variant>"
-	@echo "    (e.g. paddlex-hps-layout-cu13-lean, paddlex-hps-layout-cu12-lean)"
+	@echo "  Image name:  paddlex-hps"
+	@echo "  Image tags:  layout-cu<CUDA>-<variant>[-<arch>]"
+	@echo "    (e.g. paddlex-hps:layout-cu13-lean-sm120, paddlex-hps:layout-cu12-lean-sm90a)"
 	@echo ""
 	@echo "  make harbor-login       log into Harbor (or set HARBOR_PASS for non-interactive)"
 	@echo "  make harbor-upload      tag + push an image to Harbor"
 	@echo "    (e.g. make cuda12-lean ; make harbor-upload CUDA=cuda12 VARIANT=lean"
-	@echo "          -> registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/paddlex-hps-layout-cu12-lean)"
+	@echo "          -> registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/paddlex-hps:layout-cu12-lean-sm90a)"
 	@echo ""
 	@echo "  Override ENGINE=docker to use docker instead of podman."

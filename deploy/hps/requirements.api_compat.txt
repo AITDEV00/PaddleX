@@ -1,5 +1,5 @@
 # Python dependencies for the PaddleX HPS Docling API compatibility layer.
-# Installed on top of the paddlex-hps-ngc base image (which already provides
+# Installed on top of the paddlex-hps base image (which already provides
 # paddlepaddle-gpu, paddlex, numpy, pillow, pydantic, etc.).
 #
 # Pinned to the exact versions validated in the running container.
@@ -8,11 +8,15 @@ docling-slim==2.114.0
 docling-core==2.87.1
 fastapi==0.116.1
 granian==2.7.9
-pydantic==2.10.6
+pydantic==2.11.2
 pydantic-settings==2.14.2
-pydantic_core==2.27.2
+pydantic_core==2.33.1
 starlette==0.47.2
 python-multipart==0.0.32
 httpx==0.28.1
 pluggy==1.6.0
 uvicorn==0.35.0
+
+# Optional: Mistral OCR API layer (/v1/ocr). Enable with HPS_API_LAYERS=mistral.
+# Pinned to the tested version; generated DTOs may change across releases.
+mistralai==2.9.3

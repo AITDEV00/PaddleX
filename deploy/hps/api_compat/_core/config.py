@@ -113,3 +113,16 @@ INFERENCE_BACKEND = os.environ.get("HPS_API_BACKEND", "direct")
 TRITON_URL = os.environ.get("HPS_TRITON_URL", "localhost:8001")
 TRITON_MODEL_NAME = os.environ.get("HPS_TRITON_MODEL_NAME", "doclayout-v3")
 TRITON_REQUEST_TIMEOUT = float(os.environ.get("HPS_TRITON_TIMEOUT", "30"))
+
+# ─── API Layers (enable/disable) ─────────────────────────────────────────────
+# Comma-separated subset of enabled protocol layers, in mount order.  The
+# master app (`api_compat/web_app.py`) mounts health + each layer's routers.
+#   docling   -> POST /v1/convert/*
+#   mistral   -> POST /v1/ocr              (requires the `mistralai` package)
+#   (future)  -> unstructured, triton-infer, openai-chat, ...
+# Empty/absent -> "mistral" (the Mistral OCR layer is the primary API).
+API_LAYERS: list[str] = [
+    s.strip()
+    for s in os.environ.get("HPS_API_LAYERS", "mistral").split(",")
+    if s.strip()
+]

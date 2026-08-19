@@ -19,7 +19,7 @@
 # and NGC Triton 24.10-py3 as the base (Python 3.10 + CUDA 12.6 + TensorRT 10.5).
 #
 # Build context: PaddleX repo root (e.g. /home/jyao/ADEO/OCR/PaddleX)
-#   podman build -t paddlex-hps-ngc-cuda12 -f deploy/hps/docker/cuda12/base/Dockerfile .
+#   podman build -t paddlex-hps:layout-cu12-base -f deploy/hps/docker/cuda12/base/Dockerfile .
 #
 # Requires BuildKit / DOCKER_BUILDKIT=1 for cache mounts.
 # Podman enables BuildKit by default.

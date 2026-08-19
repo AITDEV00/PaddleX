@@ -10,7 +10,7 @@
 # they use different sonames (.so.13 vs .so.12).
 #
 # Build context: PaddleX repo root (e.g. /home/jyao/ADEO/OCR/PaddleX)
-#   podman build -t paddlex-hps-ngc -f deploy/hps/docker/cuda13/base/Dockerfile .
+#   podman build -t paddlex-hps:layout-cu13-base -f deploy/hps/docker/cuda13/base/Dockerfile .
 #
 # Requires BuildKit / DOCKER_BUILDKIT=1 for cache mounts.
 # Podman enables BuildKit by default.

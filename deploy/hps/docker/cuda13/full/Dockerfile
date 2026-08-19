@@ -2,7 +2,7 @@
 # PaddleX HPS Docling API — Dockerfile (GPU, TensorRT, non-root, offline-ready)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Extends the paddlex-hps-ngc base image (NGC Triton 24.10 + PaddlePaddle 3.3.1
+# Extends the paddlex-hps:layout-cu13-base image (NGC Triton 24.10 + PaddlePaddle 3.3.1
 # + PaddleX + CUDA 13.0 + TensorRT 10.5/10.16).  Adds the api_compat Python
 # service layer (FastAPI + Granian + Docling compatibility shim).
 #
@@ -17,7 +17,7 @@
 #
 # Build (from PaddleX repo root):
 #   podman build \
-#     -t paddlex-hps-api \
+#     -t paddlex-hps:layout-cu13-full \
 #     -f deploy/hps/docker/cuda13/full/Dockerfile \
 #     .
 #
@@ -27,13 +27,13 @@
 #     --device nvidia.com/gpu=all \
 #     --env NVIDIA_VISIBLE_DEVICES=0 \
 #     -p 8080:8080 \
-#     paddlex-hps-api
+#     paddlex-hps:layout-cu13-full
 #
 # Or with docker:
-#   docker run --rm --network none --gpus all -p 8080:8080 paddlex-hps-api
+#   docker run --rm --network none --gpus all -p 8080:8080 paddlex-hps:layout-cu13-full
 # ═══════════════════════════════════════════════════════════════════════════════
 
-FROM localhost/paddlex-hps-ngc:latest
+FROM localhost/paddlex-hps:layout-cu13-base
 
 # ─── Build args & environment ────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive

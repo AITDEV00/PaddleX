@@ -6,7 +6,7 @@
 # Use Dockerfile.api_compat for Blackwell / RTX 5090 (sm_120, requires CUDA 13.0).
 #
 # Key differences from the RTX 5090 variant:
-#   • Base image: paddlex-hps-ngc-cuda12 (CUDA 12.6, cuDNN 9.5) — below cu129
+#   • Base image: paddlex-hps:layout-cu12-base (CUDA 12.6, cuDNN 9.5) — below cu129
 #   • tensorrt_cu12 (10.16.1.11) instead of tensorrt_cu13
 #   • torch 2.13.0+cu126 instead of torch 2.13.0+cu130
 #   • No pre-built .trt engine (RTX 5090 engines are sm_120-specific)
@@ -34,7 +34,7 @@
 #
 # Build (from PaddleX repo root):
 #   docker build \
-#     -t paddlex-hps-api-h200 \
+#     -t paddlex-hps:layout-cu12-full \
 #     -f deploy/hps/docker/cuda12/full/Dockerfile \
 #     .
 #
@@ -48,10 +48,10 @@
 #     --env HPS_GPU_PRE=1 \
 #     --env HPS_API_BATCH_SIZE=4 \
 #     -p 8080:8080 \
-#     paddlex-hps-api-h200
+#     paddlex-hps:layout-cu12-full
 # ═══════════════════════════════════════════════════════════════════════════════
 
-FROM localhost/paddlex-hps-ngc-cuda12:latest
+FROM localhost/paddlex-hps:layout-cu12-base
 
 # ─── Build args & environment ────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive

@@ -36,64 +36,85 @@ repo so `deploy/hps/...`, `models/...`, and `paddlex/...` paths resolve).
 
 ### CUDA 13 (RTX 50-series / Blackwell; needs driver >= CUDA 13)
 
-```bash
 # base
-podman build -t paddlex-hps-ngc \
+podman build -t paddlex-hps:layout-cu13-base \
   -f deploy/hps/docker/cuda13/base/Dockerfile .
 
 # full API
-podman build -t paddlex-hps-api \
+podman build -t paddlex-hps:layout-cu13-full \
   -f deploy/hps/docker/cuda13/full/Dockerfile .
 
-# lean (7.02 GB winner, universal)
-# Builds the TRT engine from ONNX on first boot (FP16) -> works on any GPU
-# within CUDA 13. ~3 min first boot.
-podman build -t paddlex-hps-api-lean2 \
+# lean (7.02 GB winner)
+# Bakes in the sm_120 (RTX 5090) FP8 engine -> instant load on Blackwell.
+# Falls back to building the TRT engine from ONNX on first boot (FP8) on any
+# other GPU within CUDA 13.
+podman build -t paddlex-hps:layout-cu13-lean-sm120 \
   -f deploy/hps/docker/cuda13/lean/Dockerfile .
 
 # run (engine):
 podman run -d --name paddlex-hps-lean \
   --device nvidia.com/gpu=all \
   --env HPS_API_BACKEND=direct \
-  --env HPS_API_PRECISION=fp16 \
+  --env HPS_API_PRECISION=fp8 \
   --env HPS_API_STARTUP_TIMEOUT=300 \
-  -p 8080:8080 paddlex-hps-api-lean2
+  -p 8080:8080 paddlex-hps:layout-cu13-lean-sm120
 ```
 
 ### CUDA 12 (H200 / H100 / A100 / L40S, RTX 40-series; needs driver >= CUDA 12.6)
 
 ```bash
 # base
-podman build -t paddlex-hps-ngc-cuda12 \
+podman build -t paddlex-hps:layout-cu12-base \
   -f deploy/hps/docker/cuda12/base/Dockerfile .
 
 # full
-podman build -t paddlex-hps-api-h200 \
+podman build -t paddlex-hps:layout-cu12-full \
   -f deploy/hps/docker/cuda12/full/Dockerfile .
 
-# lean (CUDA 12.6, FP16; engine built from ONNX on first boot)
-podman build -t paddlex-hps-api-h200-lean \
+# lean (CUDA 12.6)
+# Bakes in the sm_90a (H200/H100) FP16 engine -> instant load on Hopper.
+# Falls back to building the TRT engine from ONNX on first boot (FP16) on
+# other CUDA 12.6 GPUs (A100 sm_80, L40S/4090 sm_89).
+podman build -t paddlex-hps:layout-cu12-lean-sm90a \
   -f deploy/hps/docker/cuda12/lean/Dockerfile .
 ```
 
 ### Legacy (Triton-server deployment variant)
 
 ```bash
-podman build -t paddlex-hps-api-triton \
+podman build -t paddlex-hps:layout-triton \
   -f deploy/hps/docker/legacy/Dockerfile .
 ```
 
 ---
 
+## Image naming
+
+All images are named `paddlex-hps` with tags `layout-cu<CUDA>-<variant>[-<arch>]`:
+
+| Tag | Meaning |
+|-----|---------|
+| `paddlex-hps:layout-cu13-base` | CUDA 13 NGC base |
+| `paddlex-hps:layout-cu13-full` | CUDA 13 full API image |
+| `paddlex-hps:layout-cu13-lean-sm120` | CUDA 13 lean, **sm_120 (RTX 5090) engine baked in** |
+| `paddlex-hps:layout-cu12-base` | CUDA 12 NGC base |
+| `paddlex-hps:layout-cu12-full` | CUDA 12 full API image |
+| `paddlex-hps:layout-cu12-lean-sm90a` | CUDA 12 lean, **sm_90a (H200/H100) engine baked in** |
+| `paddlex-hps:layout-triton` | Triton-server variant |
+
+The optional `<arch>` segment (sm90a/sm120) marks that a pre-built TRT engine
+for that GPU architecture is baked into the image. When it is absent, the image
+builds its engine from ONNX at first boot.
+
 ## Which one do I want?
 
 | Host / GPU | Use |
 |------------|-----|
-| Driver >= CUDA 13 (RTX 50-series etc.) | `cuda13/lean/Dockerfile` (7.02 GB, engine on first boot) |
-| Driver >= CUDA 12.6 (H200/H100/A100/L40S, RTX 40-series) | `cuda12/lean/Dockerfile` |
-| Full image (all formats / debug), CUDA 13 | `cuda13/full/Dockerfile` |
-| Full image for CUDA 12.6 / H200 | `cuda12/full/Dockerfile` |
-| Triton-server deployment mode | `legacy/Dockerfile` |
+| Driver >= CUDA 13 (RTX 50-series etc.) | `paddlex-hps:layout-cu13-lean-sm120` (engine baked in) |
+| Driver >= CUDA 12.6 (H200/H100/A100/L40S, RTX 40-series) | `paddlex-hps:layout-cu12-lean-sm90a` |
+| Full image (all formats / debug), CUDA 13 | `paddlex-hps:layout-cu13-full` |
+| Full image for CUDA 12.6 / H200 | `paddlex-hps:layout-cu12-full` |
+| Triton-server deployment mode | `paddlex-hps:layout-triton` |
 
 ## Adding a new CUDA version
 

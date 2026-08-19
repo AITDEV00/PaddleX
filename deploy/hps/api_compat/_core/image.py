@@ -67,11 +67,21 @@ def to_rgb(image: np.ndarray) -> np.ndarray:
 
 
 async def fetch_image_from_url(url: str, headers: dict[str, Any]) -> bytes:
-    """Download an image from a URL.
+    """Resolve image bytes from a URL **or** a ``data:`` URI.
 
-    Validates that the response is an image before returning the bytes.
-    Uses a pooled httpx.AsyncClient for connection reuse.
+    Supports:
+      * ``http(s)://`` — downloaded via the pooled httpx.AsyncClient.
+      * ``data:[<mediatype>][;base64],<payload>`` — decoded locally (no
+        network). This is what LiteLLM's ``/v1/ocr`` produces when a user
+        uploads a file (``convert_file_document_to_url_document`` emits a
+        base64 data URI), so the backend can consume it without needing a
+        file-upload store.
+
+    Validates the bytes are an image before returning them.
     """
+    if url.startswith("data:"):
+        return _decode_data_uri(url)
+
     client = _get_http_client()
     resp = await client.get(url, headers=headers, follow_redirects=True)
     resp.raise_for_status()
@@ -84,3 +94,39 @@ async def fetch_image_from_url(url: str, headers: dict[str, Any]) -> bytes:
         )
 
     return resp.content
+
+
+def _decode_data_uri(url: str) -> bytes:
+    """Decode a ``data:`` URI into raw bytes.
+
+    Accepts both base64 (``data:image/png;base64,...``) and percent-encoded
+    (``data:image/png,...``) payloads.  Raises ValueError on malformed input
+    or non-image media types.
+    """
+    prefix, comma, payload = url.partition(",")
+    if not comma:
+        raise ValueError("malformed data URI (missing ',' delimiter)")
+
+    # prefix is "data:<mediatype>;<params>". Strip the leading "data:".
+    meta = prefix[5:]
+    mediatype = meta.split(";")[0].strip()
+    params = meta.split(";")[1:]
+
+    if mediatype and not mediatype.startswith("image/"):
+        raise ValueError(
+            f"data URI has non-image media type '{mediatype}' — expected image/*"
+        )
+
+    is_base64 = any(p.strip() == "base64" for p in params)
+    if is_base64:
+        import base64
+
+        try:
+            return base64.b64decode(payload, validate=True)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"invalid base64 in data URI: {exc}") from exc
+
+    # Percent-encoded payload → URL-decode.
+    import urllib.parse
+
+    return urllib.parse.unquote_to_bytes(payload)

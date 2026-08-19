@@ -1,0 +1,1 @@
+"""Converter package — maps PaddleX layout boxes to Mistral OCR blocks."""

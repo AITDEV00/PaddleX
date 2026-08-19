@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # LOCAL DEBUG OVERLAY — cu13 (RTX 5090 / sm_120)
 # ─────────────────────────────────────────────────────────────────────────────
-# Reuses the already-built local `paddlex-hps-api-lean2` (CUDA 13 lean image,
-# which has paddle + models + TensorRT 10.16.1 pinned + TRT runtime engine
-# builder baked in) and overlays ONLY the current api_compat source tree that
+# Reuses the already-built local `paddlex-hps:layout-cu13-lean-sm120` (CUDA 13
+# lean image, which has paddle + models + TensorRT 10.16.1 pinned + TRT runtime
+# engine builder baked in) and overlays ONLY the current api_compat source tree that
 # contains the debug bbox renderer (`render_debug_image` + `debug` route args).
 #
 # Purpose: fast local test of the SAME endpoint used on the H200 MIG cluster,
@@ -12,7 +12,7 @@
 # changes.
 #
 # Build (from PaddleX repo root):
-#   docker build -t paddlex-hps-layout-cu13-debug \
+#   docker build -t paddlex-hps:layout-cu13-debug \
 #     -f deploy/hps/docker/cuda13/lean/overlay.Dockerfile .
 #
 # Run (RTX 5090, engine built on first boot, ~2-3 min):
@@ -20,10 +20,10 @@
 #     -e HPS_API_BACKEND=direct -e HPS_API_PRECISION=fp16 \
 #     -e HPS_API_STARTUP_TIMEOUT=300 \
 #     -p 8082:8080 \
-#     paddlex-hps-layout-cu13-debug
+#     paddlex-hps:layout-cu13-debug
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM paddlex-hps-api-lean2:latest
+FROM paddlex-hps:layout-cu13-lean-sm120
 
 USER root
 

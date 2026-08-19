@@ -5,18 +5,28 @@
 # Purpose: a MUCH smaller direct/TensorRT image than Dockerfile.lean (25.4 GB).
 # FINAL SIZE: ~7.0 GB (validated end-to-end with the Docling client).
 #
-# DESIGN: build-the-engine-at-runtime (UNIVERSAL across GPU architectures).
-# This image does NOT bake in a hardware-specific TensorRT engine. Instead it
-# ships the model ONNX + Paddle params and builds a TRT engine from ONNX on
-# FIRST startup on the target GPU (FP16), caching it in /tmp. Because the
-# engine is built at runtime, this single image works on ANY recent NVIDIA
-# GPU (RTX 4090 sm_89, RTX 5090 sm_120, H200 sm_90a, A100 sm_80, L40S sm_89 …)
-# as long as the host driver / container runtime is new enough for the CUDA
-# version. There is no per-architecture bake step.
+# DESIGN: A pre-built sm_120 (RTX 5090 / RTX 50-series Blackwell) FP8 engine
+# is BAKED IN (built locally on the RTX 5090 dev host). The engine deserializes
+# instantly on RTX 5090 (sm_120) — no runtime rebuild. The image ALSO ships the
+# ONNX + Paddle params so it can fall back to building at runtime if it lands
+# on a different CUDA 13.0 GPU arch (H200/H100 sm_90a, A100 sm_80, L40S sm_89).
 #
-# (Earlier builds baked an sm_120 / RTX 5090 FP8 engine to shrink the image,
-# which made it architecture-specific. Building at runtime costs a ~3 min
-# first-boot engine build but removes that limitation.)
+#   FP8 is used (not FP16): on Blackwell (sm_120) the separately-built FP8
+#   engine is the tuned path. (FP16 works only on Hopper sm_90a where the
+#   cu12 image bakes its engine; the modelopt FP8 ONNX has mixed-type Cast
+#   nodes that TRT 10.16 STRONGLY_TYPED cannot parse outside sm_120.)
+#
+#   Because we keep ONNX-based build-at-runtime as a fallback, we KEEP ALL the
+#   TRT builder resource kernels (all sm_* arch + ptx) — they are only needed
+#   if the engine must be rebuilt for a non-sm_120 GPU. We only strip: Windows
+#   DLLs, unused paddle compute kernels, C++ headers, training subpackages.
+#
+#   Build toolchain NOT needed at runtime (verified against tensorrt_runner.py):
+#     - modelopt       only for int8/fp8 quantization  (we use fp8, baked)
+#     - paddle2onnx    only for Paddle→ONNX export     (inference.onnx shipped)
+#     - onnx/polygraphy only used during export/fold   (skipped for pre-made ONNX)
+#     The engine is built from the shipped inference.onnx via trt.OnnxParser
+#     (C++ libnvinfer, included in the tensorrt_cu13 wheel).
 #
 # Dockerfile.lean builds on the official Paddle image, which is a `-devel`
 # image (19.1 GB): it ships the full CUDA build toolchain (nvcc, gcc-13, cmake,
@@ -48,23 +58,22 @@
 # Direct backend needs (verified against api_compat source):
 #   • paddlepaddle-gpu 3.3.1  — transplanted from the paddle base
 #   • paddlex                — model wrapper (pip install, PyPI is reachable)
-#   • tensorrt (cu13) 10.16.1.11 — build engine from ONNX at runtime + deserialize
+#   • tensorrt (cu13) 10.16.1.11 — deserialize baked engine + build-from-ONNX fallback
 #   • pycuda                 — direct CUDA in-process backend
-#   • docling/FastAPI deps (requirements.api_compat.txt)
+#   • docling/FastAPI + mistralai deps (requirements.api_compat.txt)
 #   • websockets             — docling client websocket watcher (test only)
 # NOT needed: tritonserver, tritonclient, nvidia-modelopt, onnx, onnxsim,
 # polygraphy, paddle2onnx (build-time only), nvcc / gcc / build toolchain.
 #
-# Runtime engine build: the runner (tensorrt_runner.py) builds the engine from
-# the shipped inference.onnx on first boot using tensorrt + pycuda ONLY. For
-# fp16 this needs no nvidia-modelopt / onnx tooling at runtime. The FP16 engine
-# is cached at /opt/models/.../inference_fp16.trt (or HPS_API_ENGINE_DIR).
-# NOTE: we keep ALL TensorRT builder-resource kernels (do NOT strip to one sm_
-# arch) so the runtime can build on whichever GPU it lands on.
+# Runtime engine: a pre-built sm_120 FP8 engine is BAKED IN and deserialized
+# instantly on RTX 5090. As a fallback, the runner (tensorrt_runner.py) can
+# build the engine from the shipped inference.onnx on first boot using
+# tensorrt + pycuda ONLY. We keep ALL TensorRT builder-resource kernels (do NOT
+# strip to one sm_ arch) so the runtime can build on whichever GPU it lands on.
 #
 # Build (from PaddleX repo root):
 #   docker build \
-#     -t paddlex-hps-api-lean2 \
+#     -t paddlex-hps:layout-cu13-lean-sm120 \
 #     -f deploy/hps/docker/cuda13/lean/Dockerfile \
 #     .
 #
@@ -72,11 +81,12 @@
 #   docker run -d --name paddlex-hps-lean2 \
 #     --device nvidia.com/gpu=all \
 #     --env HPS_API_BACKEND=direct \
-#     --env HPS_API_PRECISION=fp16 \
+#     --env HPS_API_PRECISION=fp8 \
 #     --env HPS_API_STARTUP_TIMEOUT=300 \
 #     -p 8082:8080 \
-#     paddlex-hps-api-lean2
-#   (First boot builds the TRT engine from ONNX, ~3 min, then caches it.)
+#     paddlex-hps:layout-cu13-lean-sm120
+#   (First boot loads the baked-in RTX 5090 FP8 engine instantly; if run on a
+#   different GPU arch it rebuilds from ONNX, ~3 min, then caches it.)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -248,19 +258,25 @@ RUN --mount=type=cache,target=/tmp/pip-cache \
         "faiss-cpu>=1.8" "pycocotools>=2" "pypdfium2>=4.30.0" \
         decorator astor
 
-# ─── 4b. API Python dependencies (pinned) ──────────────────────────────────
+# ─── 4b. API Python dependencies (pinned, incl. Mistral OCR layer) ───────
+# Mirror of the cu12 image. requirements.api_compat.txt installs the shared
+# service layer (fastapi/granian/docling) PLUS the Mistral OCR layer
+# (mistralai 2.9.3 → /v1/ocr) and bumps pydantic to 2.11.2 / pydantic_core
+# 2.33.1 (mistralai requires pydantic>=2.11.2). orjson added separately.
+#
 # Backend-mode-aware split (see requirements.base.txt / .direct.txt /
 # .triton.txt):
 #   • Section 4 above already installs the direct/in-process runtime
 #     (paddlex, opencv, scikit, scipy, faiss) — mirroring requirements.direct.txt.
-#   • This stage installs the shared service layer (fastapi/granian/docling)
-#     from requirements.base.txt, used by every mode.
-#   • A Triton-only image would install requirements.base.txt +
-#     requirements.triton.txt (gRPC client) and skip the direct runtime.
-COPY deploy/hps/requirements.base.txt /tmp/requirements.base.txt
+#   • This stage installs the shared service layer + mistral from
+#     requirements.api_compat.txt (superset of base).
+#   • A Triton-only image would install requirements.triton.txt (gRPC client)
+#     and skip the direct runtime.
+COPY deploy/hps/requirements.api_compat.txt /tmp/requirements.api_compat.txt
 RUN --mount=type=cache,target=/tmp/pip-cache \
-    pip install --no-cache-dir -r /tmp/requirements.base.txt \
-    && rm /tmp/requirements.base.txt
+    pip install --no-cache-dir -r /tmp/requirements.api_compat.txt \
+    && pip install --no-cache-dir "orjson>=3.10.0" \
+    && rm /tmp/requirements.api_compat.txt
 
 # ─── 4c. Patch PaddleX with custom TensorRT engine ─────────────────────────
 # Copy the new TensorRT engine module + vectorized processors into the
@@ -287,14 +303,17 @@ COPY deploy/hps/api_compat/ /opt/api_compat/
 COPY deploy/hps/scripts/run_api.sh /opt/scripts/run_api.sh
 RUN chmod +x /opt/scripts/run_api.sh
 
-# ─── 6. Model weights + ONNX (NO pre-built .trt) ──────────────────────────
-# Bake in ONNX + Paddle params. Any pre-built inference_fp8.trt / fp16.trt in
-# the model dir are hardware-specific (e.g. sm_120 / RTX 5090) and would not
-# deserialize on other GPUs. DELETE them so the runner builds the engine from
-# ONNX on first boot on the TARGET GPU (universal across architectures).
+# ─── 6. Model weights + pre-built sm_120 FP8 engine ─────────────────────
+# Bake in the RTX 5090 (sm_120) FP8 engine + timing.cache (built locally on
+# the dev host). prepare_engine() copies these to /tmp/paddlex-engines and
+# PaddleX deserializes them INSTANTLY on RTX 5090 — no runtime rebuild.
+#
+# The sm_90a (H200/H100) inference_fp16.trt is the only file deleted — FP16 has
+# no sm_120 path here (FP8 is used on Blackwell). inference_fp8.trt / timing.cache
+# are the sm_120 RTX 5090 builds and are KEPT. The ONNX + Paddle params remain
+# shipped as a build-at-runtime fallback for other CUDA 13.0 GPUs.
 COPY models/PP-DocLayoutV3/ /opt/models/PP-DocLayoutV3/
-RUN rm -f /opt/models/PP-DocLayoutV3/inference_fp8.trt \
-          /opt/models/PP-DocLayoutV3/inference_fp16.trt
+RUN rm -f /opt/models/PP-DocLayoutV3/inference_fp16.trt
 
 # ─── 7. Non-root user (UID 10000) ───────────────────────────────────────────
 RUN groupadd -g 10000 runner \
@@ -315,10 +334,11 @@ ENV PADDLEX_HOME=/tmp/paddlex-home
 ENV PADDLE_PDX_CACHE_HOME=/tmp/paddlex-home/.paddlex
 ENV HPS_API_ENGINE_DIR=/tmp/paddlex-engines
 ENV HPS_API_MODEL=PP-DocLayoutV3
-ENV HPS_API_PRECISION=fp16
+ENV HPS_API_PRECISION=fp8
 ENV HPS_API_BACKEND=direct
 ENV HPS_API_DEVICE_ID=0
-# First boot builds the TRT engine from ONNX (~3 min for FP16). 300s margin.
+# Baked-in sm_120 engine deserializes instantly; first boot falls back to
+# building from ONNX (~3 min for FP16/FP8) on other archs. 300s margin.
 ENV HPS_API_STARTUP_TIMEOUT=300
 ENV PYTHONPATH=/opt
 

@@ -13,7 +13,7 @@
 #                        + pre-built .trt engine. NO modelopt/onnx/polygraphy.
 #
 # Result: ~32.2 GB (vs ~37.1 GB single-stage). The remaining size is dominated
-# by the base image (paddlex-hps-ngc, 26.6 GB) which bundles the Triton server
+# by the base image (paddlex-hps:layout-cu13-base, 26.6 GB) which bundles the Triton server
 # (5.6 GB) + CUDA 12.6/13.0 + paddle + TRT.  The multi-stage split only trims
 # the on-top build toolchain.  To go genuinely small, see
 # docs/lean_image_design_plan.md (fresh CUDA base, direct-backend-only).
@@ -23,7 +23,7 @@
 #
 # Build (from PaddleX repo root):
 #   docker build \
-#     -t paddlex-hps-api-slim \
+#     -t paddlex-hps:layout-cu13-full \
 #     -f deploy/hps/docker/cuda13/full/Dockerfile.multistage \
 #     .
 #
@@ -33,13 +33,13 @@
 #     --env NVIDIA_VISIBLE_DEVICES=0 \
 #     --env HPS_API_PRECISION=fp8 \
 #     -p 8080:8080 \
-#     paddlex-hps-api-slim
+#     paddlex-hps:layout-cu13-full
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────────────────────────────────────
 # STAGE 1 — BUILDER: quantization + engine toolchain (not shipped to runtime)
 # ──────────────────────────────────────────────────────────────────────────────
-FROM localhost/paddlex-hps-ngc:latest AS builder
+FROM localhost/paddlex-hps:layout-cu13-base AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -71,7 +71,7 @@ COPY models/PP-DocLayoutV3/ /opt/models/PP-DocLayoutV3/
 # ═══════════════════════════════════════════════════════════════════════════════
 # STAGE 2 — RUNTIME (final, slim)
 # ═══════════════════════════════════════════════════════════════════════════════
-FROM localhost/paddlex-hps-ngc:latest AS runtime
+FROM localhost/paddlex-hps:layout-cu13-base AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1

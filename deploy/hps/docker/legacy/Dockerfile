@@ -12,12 +12,12 @@
 #
 # Build (from PaddleX repo root):
 #   podman build \
-#     -t paddlex-hps-api-triton \
+#     -t paddlex-hps:layout-triton \
 #     -f deploy/hps/docker/legacy/Dockerfile \
 #     .
 #
 # Run:
-#   podman run --rm --gpus all -p 8080:8080 paddlex-hps-api-triton
+#   podman run --rm --gpus all -p 8080:8080 paddlex-hps:layout-triton
 #
 # Environment:
 #   HPS_API_PIPELINE_DEPTH=3     Max concurrent in-flight gRPC requests
@@ -25,7 +25,7 @@
 #   PORT=8080                    HTTP listen port
 # ═══════════════════════════════════════════════════════════════════════════════
 
-FROM localhost/paddlex-hps-ngc:latest
+FROM localhost/paddlex-hps:layout-cu13-base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1

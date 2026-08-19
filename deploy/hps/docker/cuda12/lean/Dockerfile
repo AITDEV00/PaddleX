@@ -14,14 +14,15 @@
 #   - NVIDIA L40S  (sm_89)   — FP16
 #   - NVIDIA RTX 4090 (sm_89) — FP16
 #
-# KEY DESIGN: NO pre-built .trt engine baked in. This image ships the ONNX +
-# Paddle params and BUILDS the engine from ONNX on first startup (FP16, ~3 min),
-# cached in /tmp for subsequent restarts. Because the engine is built at
-# runtime, the image works on any CUDA 12.6-capable GPU architecture.
+# DESIGN: A pre-built sm_90a (H200/H100) FP16 engine is BAKED IN (from the
+# running paddle deployment pod). The engine deserializes instantly on
+# H200/H100 (sm_90a) — no ~30-min runtime rebuild. The image ALSO ships the
+# ONNX + Paddle params so it can fall back to building at runtime if it lands
+# on a different CUDA 12.6 GPU arch (A100 sm_80, L40S/RTX4090 sm_89).
 #
-#   Because the engine is built AT RUNTIME, we must KEEP ALL the TRT builder
-#   resource kernels (all sm_* archs + ptx) — they are needed to (re)build the
-#   engine on whatever CUDA 12.6 GPU the image lands on. We only strip: Windows
+#   Because we keep ONNX-based build-at-runtime as a fallback, we KEEP ALL the
+#   TRT builder resource kernels (all sm_* arch + ptx) — they are only needed
+#   if the engine must be rebuilt for a non-sm_90a GPU. We only strip: Windows
 #   DLLs, unused paddle compute kernels, C++ headers, training subpackages.
 #
 #   FP16 is used (not FP8): the modelopt FP8 ONNX has mixed-type Cast nodes
@@ -38,7 +39,7 @@
 #
 # Build (from PaddleX repo root):
 #   docker build \
-#     -t paddlex-hps-api-h200-lean \
+#     -t paddlex-hps:layout-cu12-lean-sm90a \
 #     -f deploy/hps/docker/cuda12/lean/Dockerfile \
 #     .
 #
@@ -49,8 +50,9 @@
 #     --env HPS_API_PRECISION=fp16 \
 #     --env HPS_API_STARTUP_TIMEOUT=300 \
 #     -p 8082:8080 \
-#     paddlex-hps-api-h200-lean
-#   (First boot builds the TRT engine from ONNX, ~3 min.)
+#     paddlex-hps:layout-cu12-lean-sm90a
+#   (First boot loads the baked-in H200 FP16 engine instantly; if run on a
+#   different GPU arch it rebuilds from ONNX, ~3 min.)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -225,14 +227,18 @@ COPY deploy/hps/api_compat/ /opt/api_compat/
 COPY deploy/hps/scripts/run_api.sh /opt/scripts/run_api.sh
 RUN chmod +x /opt/scripts/run_api.sh
 
-# ─── 6. Model weights + ONNX (NO pre-built .trt) ──────────────────────────
-# Bake in ONNX + Paddle params. The pre-built inference_fp8.trt / fp16.trt in
-# the model dir are sm_120 (RTX 5090) — they will NOT deserialize on sm_90, so
-# DELETE them so the engine builder goes straight to ONNX→TRT on first boot.
-# (The engine is built once from inference.onnx and cached in /tmp.)
+# ─── 6. Model weights + pre-built H200 engine ────────────────────────────
+# Bake in the H200/H100 sm_90a FP16 engine + timing.cache (exported from the
+# running paddle deployment pod). prepare_engine() copies these to
+# /tmp/paddlex-engines and PaddleX deserializes them INSTANTLY on H200/H100 —
+# no runtime rebuild.
+#
+# The sm_120 (RTX 5090) inference_fp8.trt is the only file deleted — FP8 has
+# no H200 path here (FP16 is used on Hopper). inference_fp16.trt / timing.cache
+# are the sm_90a H200 builds and are KEPT. The ONNX + Paddle params remain
+# shipped as a build-at-runtime fallback for other CUDA 12.6 GPUs.
 COPY models/PP-DocLayoutV3/ /opt/models/PP-DocLayoutV3/
-RUN rm -f /opt/models/PP-DocLayoutV3/inference_fp8.trt \
-          /opt/models/PP-DocLayoutV3/inference_fp16.trt
+RUN rm -f /opt/models/PP-DocLayoutV3/inference_fp8.trt
 
 # ─── 7. Non-root user (UID 10000) ───────────────────────────────────────────
 RUN groupadd -g 10000 runner \

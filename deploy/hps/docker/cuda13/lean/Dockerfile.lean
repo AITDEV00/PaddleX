@@ -4,7 +4,7 @@
 #
 # Purpose: a genuinely small image (~12-15 GB) for the **direct / TensorRT**
 # backend. The other Dockerfiles inherit the 26.6 GB Triton NGC base
-# (paddlex-hps-ngc), so even after splitting build tooling out they land at
+# (paddlex-hps:layout-cu13-base), so even after splitting build tooling out they land at
 # ~32-37 GB. This file builds on the official Paddle image instead, which
 # already ships paddle 3.3.1 + CUDA 13.0 + cuDNN 9 and NO Triton server.
 #
@@ -27,7 +27,7 @@
 #
 # Build (from PaddleX repo root):
 #   docker build \
-#     -t paddlex-hps-api-lean \
+#     -t paddlex-hps:layout-cu13-full \
 #     -f deploy/hps/docker/cuda13/lean/Dockerfile \
 #     .
 #
@@ -38,7 +38,7 @@
 #     --env HPS_API_BACKEND=direct \
 #     --env HPS_API_PRECISION=fp8 \
 #     -p 8080:8080 \
-#     paddlex-hps-api-lean
+#     paddlex-hps:layout-cu13-full
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────────────────────────────────────

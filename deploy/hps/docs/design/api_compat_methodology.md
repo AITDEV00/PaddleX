@@ -761,8 +761,8 @@ api_compat/unstructured_api/
 
 ```bash
 # Build from PaddleX repo root
-docker build -f deploy/hps/docker/cuda13/full/Dockerfile -t paddlex-hps-api .
-docker run --gpus all -p 8080:8080 paddlex-hps-api
+docker build -f deploy/hps/docker/cuda13/full/Dockerfile -t paddlex-hps:layout-cu13-full .
+docker run --gpus all -p 8080:8080 paddlex-hps:layout-cu13-full
 ```
 
 ### Container deployment (dev/iteration)

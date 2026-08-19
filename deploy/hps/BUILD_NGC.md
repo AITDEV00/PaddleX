@@ -93,13 +93,13 @@ cd /path/to/PaddleX
 
 **For CUDA 13 / RTX 5090 (needs driver ≥ CUDA 13):**
 ```bash
-podman build -t paddlex-hps-ngc \
+podman build -t paddlex-hps:layout-cu13-base \
   -f deploy/hps/docker/cuda13/base/Dockerfile .
 ```
 
 **For CUDA 12.6 (H200 / H100 / A100 / L40S / RTX 40-series):**
 ```bash
-podman build -t paddlex-hps-ngc-cuda12 \
+podman build -t paddlex-hps:layout-cu12-base \
   -f deploy/hps/docker/cuda12/base/Dockerfile .
 ```
 
@@ -111,7 +111,7 @@ subsequent runs (cached layers).
 ```bash
 # Check PaddlePaddle GPU is detected inside the image
 podman run --rm --device nvidia.com/gpu=all -e NVIDIA_DISABLE_REQUIRE=1 \
-  paddlex-hps-ngc \
+  paddlex-hps:layout-cu13-base \
   python3 -c "import paddle; print('GPU count:', paddle.device.cuda.device_count()); print('GPU:', paddle.device.cuda.get_device_name(0))"
 ```
 
@@ -133,7 +133,7 @@ podman run --rm -d \
   -e NVIDIA_DISABLE_REQUIRE=1 \
   -e PADDLEX_HPS_DEVICE_TYPE=gpu \
   --device nvidia.com/gpu=all \
-  paddlex-hps-ngc:latest
+  paddlex-hps:layout-cu13-base
 ```
 
 ### H200 MIG deployment
@@ -150,7 +150,7 @@ podman run --rm -d \
   -e PADDLEX_HPS_DEVICE_TYPE=gpu \
   -e CUDA_VISIBLE_DEVICES=MIG-<uuid> \
   --device nvidia.com/gpu=all \
-  paddlex-hps-ngc-cuda12:latest
+  paddlex-hps:layout-cu12-base
 ```
 
 To find the MIG device UUID:

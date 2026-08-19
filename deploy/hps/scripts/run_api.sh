@@ -20,6 +20,12 @@
 #   HPS_API_STARTUP_TIMEOUT    Model load deadline seconds (default: 300)
 #   HPS_API_LOG_LEVEL          Logging level (default: INFO)
 #
+#   ── API layers ──────────────────────────────────────────────────────────
+#   HPS_API_LAYERS             Comma-separated enabled API layers (default: mistral)
+#                              (default: docling). e.g. "docling,mistral".
+#   HPS_API_TARGET             Granian target app (default: api_compat.web_app:app).
+#                              Per-layer apps: api_compat.mistral_ocr_api.app:app
+#
 #   ── Throughput / Latency Tuning ──────────────────────────────────────────
 #   HPS_API_PIPELINE_DEPTH     Concurrent in-flight GPU tasks (default: 4)
 #   HPS_API_CPU_POOL_SIZE      Thread pool for CPU-bound stages (default: 8)
@@ -65,7 +71,7 @@ fi
 export PADDLE_PDX_CACHE_HOME="${PADDLEX_CACHE_DIR}"
 
 echo "============================================"
-echo " PaddleX HPS Docling API (Granian)"
+echo " PaddleX HPS API (Granian)"
 echo "============================================"
 echo " Port:           ${PORT}"
 echo " Host:           ${HOST}"
@@ -81,6 +87,8 @@ echo " BatchTimeoutMs: ${HPS_API_BATCH_TIMEOUT_MS:-5}"
 echo " SkipD2HCopy:    ${HPS_TRT_SKIP_D2H_COPY:-1}"
 echo " SkipD2HOutputs: ${HPS_TRT_SKIP_D2H_OUTPUTS:-auto}"
 echo " PinnedMemory:   ${HPS_TRT_PINNED:-1}"
+echo " Layers:         ${HPS_API_LAYERS:-mistral}"
+echo " ApiTarget:      ${HPS_API_TARGET:-api_compat.web_app:app}"
 echo "============================================"
 
 # ── Latency/throughput optimizations ─────────────────────────────────────────
@@ -101,9 +109,13 @@ export HPS_TRT_SKIP_D2H_OUTPUTS="${HPS_TRT_SKIP_D2H_OUTPUTS:-auto}"
 # Safe to leave at default (1); set 0 for fallback/debugging.
 export HPS_TRT_PINNED="${HPS_TRT_PINNED:-1}"
 
+# Default to the master app (mounts layers per HPS_API_LAYERS).  Override with
+# HPS_API_TARGET to run a single layer's app on its own process/port.
+API_TARGET="${HPS_API_TARGET:-api_compat.web_app:app}"
+
 exec granian \
     --interface asgi \
     --host "${HOST}" \
     --port "${PORT}" \
     --workers "${WORKERS}" \
-    "api_compat.docling_api.app:app"
+    "${API_TARGET}"
