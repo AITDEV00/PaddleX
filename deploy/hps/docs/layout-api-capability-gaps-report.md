@@ -261,12 +261,19 @@ drop; it does not affect any conclusion above.
    per-request value does not.
 2. Is LiteLLM able to forward unknown top-level fields to the PaddleX backend, or does the extra
    parameter need to be declared on the gateway side too?
-   **→ Partly answered:** the backend declares the extra fields on its request model
-   (`threshold`, `layout_*`, `include_paddlex_metadata`) and honours them — verified directly against
-   the backend. Whether LiteLLM **forwards** them to the backend is a gateway concern, **not** a backend
-   one. If a field appears "accepted but ignored" through the gateway, the drop is at the gateway. The
-   remaining work (if needed) is declaring/allow-listing these fields on the LiteLLM side, not in the
-   backend.
+   **→ Partly answered, now measured (2026-08-20 via `litellm.ecouncil.ae`, key `sk-05132025`):**
+   the backend declares and honours the extra fields (`threshold`, `layout_*`,
+   `include_paddlex_metadata`, `include_native_labels`) — verified directly against the backend.
+   **Through the gateway**, however, LiteLLM strips the PaddleX-extension top-level fields because
+   they are not in the stock Mistral `/v1/ocr` request schema:
+   - `confidence_scores_granularity="block"` (a stock Mistral field) **is forwarded** → 16/16 blocks
+     carry scores.
+   - `include_native_labels=true` (extension) is **dropped** → 0/16 blocks carry `label`.
+   - `threshold` (extension) is **dropped** → block count stays 16 at 0.3/0.5/0.7/0.8/0.99.
+   So the drop is at the gateway, **not** the backend. To expose `threshold`/`include_native_labels`
+   through the gateway, these fields must be **declared / allow-listed on the LiteLLM side** (e.g.
+   passthrough allow-list on the `PP-DocLayoutV3` route). The backend already supports them; no
+   backend change is required.
 3. Can extra fields be added to the block objects without breaking other consumers of this endpoint who
    parse it as strict Mistral `OCRResponse`?
    **→ Yes, and now done.** Extra top-level fields (like the existing `paddlex` container) are already
