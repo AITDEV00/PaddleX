@@ -111,18 +111,33 @@ class AppState:
 state = AppState()
 
 
-async def run_layout_detection(image: np.ndarray) -> list[dict[str, Any]]:
+async def run_layout_detection(
+    image: np.ndarray,
+    *,
+    threshold: float | dict | None = None,
+    **layout_kwargs: Any,
+) -> list[dict[str, Any]]:
     """Run layout detection on a single image via the active backend.
 
     Delegates to the selected backend's :meth:`detect`.  The backend is
     responsible for its own batching/concurrency.
+
+    Args:
+        image: (H, W, 3) uint8 image.
+        threshold: Optional per-request detection threshold (float or
+            per-class dict). ``None`` → backend default.
+        **layout_kwargs: Extra layout post-processing options (``layout_nms``,
+            ``layout_unclip_ratio``, ``layout_merge_bboxes_mode``,
+            ``layout_shape_mode``, ``filter_overlap_boxes``).
 
     Raises:
         RuntimeError: If the backend is unreachable or inference fails.
     """
     _log = is_latency_logging_enabled()
     t0 = time.perf_counter() if _log else 0.0
-    boxes = await state.backend.detect(image)
+    boxes = await state.backend.detect(
+        image, threshold=threshold, **layout_kwargs
+    )
     if _log:
         elapsed = time.perf_counter() - t0
         logger.info(

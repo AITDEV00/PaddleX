@@ -59,11 +59,20 @@ class InferenceBackend(ABC):
 
     # ── Inference ───────────────────────────────────────────────────────────
     @abstractmethod
-    def detect(self, image: np.ndarray) -> list[dict[str, Any]]:
+    async def detect(
+        self,
+        image: np.ndarray,
+        *,
+        threshold: float | dict | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         """Run layout detection on one image.
 
         Args:
             image: (H, W, 3) numpy array, uint8 (BGR).
+            threshold: Optional per-request detection threshold. ``None``
+                falls back to the backend/deployment default.
+            **kwargs: Optional layout post-processing options.
 
         Returns:
             List of box dicts: {label, score, coordinate, order, cls_id,

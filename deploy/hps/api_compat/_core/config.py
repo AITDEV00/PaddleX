@@ -30,6 +30,9 @@ def setup_logging() -> None:
 MODEL_NAME = os.environ.get("HPS_API_MODEL", "PP-DocLayoutV3")
 MODEL_PRECISION = os.environ.get("HPS_API_PRECISION", "fp8")
 MODEL_DEVICE_ID = int(os.environ.get("HPS_API_DEVICE_ID", "0"))
+# Default layout-detection threshold. Overridable per-request via the
+# Mistral request's ``threshold`` field; falls back to this value.
+MODEL_THRESHOLD = float(os.environ.get("HPS_API_THRESHOLD", "0.5"))
 
 # ─── Engine cache directories (all writable paths in /tmp) ─────────────────────
 

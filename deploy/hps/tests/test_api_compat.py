@@ -1847,6 +1847,241 @@ def main() -> int:
         assert parsed.status == "ok"
     test("Official client: /livez returns parseable HealthCheckResponse", t_official_livez)
 
+    # ─── Mistral OCR: PaddleX → Mistral full mapping ──────────────────
+    from api_compat.mistral_ocr_api.converter.labels import (
+        PADDLEX_TO_MISTRAL_TYPE,
+        to_mistral_type,
+    )
+
+    def t_mistral_label_mapping():
+        assert len(PADDLEX_TO_MISTRAL_TYPE) >= 25, \
+            f"Expected >=25 label mappings, got {len(PADDLEX_TO_MISTRAL_TYPE)}"
+        assert to_mistral_type("text") == "text"
+        assert to_mistral_type("doc_title") == "title"
+        assert to_mistral_type("display_formula") == "equation"
+        assert to_mistral_type("unknown_label") == "text"
+    test("PADDLEX_TO_MISTRAL_TYPE has >=25 mappings, defaults unknown to text",
+         t_mistral_label_mapping)
+
+    from api_compat.mistral_ocr_api.converter.service import converter
+    from api_compat.mistral_ocr_api.converter.boxes import (
+        BoxAdapter, LayoutBox, box_adapter_registry,
+    )
+    from api_compat.mistral_ocr_api.converter import ConvertOptions
+
+    def t_mistral_confidence_and_metadata():
+        import numpy as np
+        raw_boxes = [
+            {"label": "text", "cls_id": 20, "score": 0.95,
+             "coordinate": [10, 20, 100, 200], "order": 0},
+            {"label": "figure_title", "cls_id": 7, "score": 0.88,
+             "coordinate": [10, 210, 100, 240], "order": 1,
+             "polygon_points": [[10, 210], [100, 210], [100, 240], [10, 240]]},
+            {"label": "table", "cls_id": 19, "score": 0.72,
+             "coordinate": [0, 0, 50, 50], "order": 2},
+        ]
+        # Canonicalize via the registered adapter (same path the service uses).
+        adapter = box_adapter_registry.get("PP-DocLayoutV3")
+        boxes = [adapter.to_box(b) for b in raw_boxes]
+        img = np.zeros((300, 300, 3), dtype=np.uint8)
+        page = converter.convert(
+            boxes, img,
+            ConvertOptions(
+                include_scores=True, include_native_metadata=True, threshold=0.5,
+            ),
+        )
+        # Blocks carry native confidence_scores (block_type + average)
+        b0 = page.blocks[0]
+        assert b0.confidence_scores.block_type_confidence_score == 0.95
+        assert b0.confidence_scores.average_content_confidence_score == 0.95
+        # Structural type mapped from label (figure_title → title)
+        assert page.blocks[1].type == "title"
+        # Table gets a table_id
+        assert page.blocks[2].table_id == "table_0"
+        # Native metadata attached
+        meta = page._paddlex_page_metadata
+        assert meta.threshold_used == 0.5
+        assert meta.boxes[1].label == "figure_title"
+        assert meta.boxes[1].cls_id == 7
+        assert meta.boxes[1].polygon_points is not None
+        assert meta.boxes[1].block_index == 1
+    test("Mistral converter: confidence_scores + native paddlex metadata",
+         t_mistral_confidence_and_metadata)
+
+    def t_mistral_adapter_extension():
+        """A future model with a different box shape registers its own adapter
+        and funnels in without touching the emitter."""
+        class WeirdModelAdapter(BoxAdapter):
+            model_id = "weird-model"
+            def _label(self, raw): return str(raw["kind"])
+            def _coordinate(self, raw):
+                b = raw["bbox"]
+                return [b[0], b[1], b[2], b[3]]
+
+        box_adapter_registry.register(WeirdModelAdapter)
+        assert "weird-model" in box_adapter_registry.available
+        adapter = box_adapter_registry.get("weird-model")
+        box = adapter.to_box({"kind": "table", "score": 0.9,
+                              "bbox": [0, 0, 10, 10]})
+        assert isinstance(box, LayoutBox)
+        assert box.label == "table"
+        assert box.coordinate == [0, 0, 10, 10]
+        # Unknown model still resolves to the PP-DocLayoutV3 default.
+        assert box_adapter_registry.get("no-such-model").model_id == "PP-DocLayoutV3"
+        # Duplicate registration is guarded (replace=False default).
+        try:
+            box_adapter_registry.register(WeirdModelAdapter)
+            assert False, "duplicate registration should raise"
+        except ValueError:
+            pass
+    test("BoxAdapterRegistry: future models register adapters, default preserved",
+         t_mistral_adapter_extension)
+
+    def t_mistral_adapter_robustness():
+        """Adapters are defensive: malformed/missing input never raises and
+        yields a valid canonical box."""
+        adapter = box_adapter_registry.get("PP-DocLayoutV3")
+        # None raw → full fallbacks.
+        b = adapter.to_box(None)
+        assert b.label == "text" and b.score == 0.0 and b.coordinate == [0, 0, 0, 0]
+        # Object-with-attributes input (not a dict) works too.
+        class Obj:
+            label = "table"; score = "0.9"; coordinate = [1, 2, 3, 4]
+            order = 0; cls_id = 5; polygon_points = None
+        b = adapter.to_box(Obj())
+        assert b.label == "table" and b.score == 0.9 and b.coordinate == [1, 2, 3, 4]
+        # Score clamping to [0, 1].
+        b = adapter.to_box({"label": "t", "score": 5.0, "coordinate": [0, 0, 1, 1]})
+        assert b.score == 1.0
+        # Out-of-order bbox gets min/max swapped.
+        b = adapter.to_box({"label": "t", "score": 0.5, "coordinate": [10, 10, 0, 0]})
+        assert b.coordinate == [0, 0, 10, 10]
+        # Flat polygon (no coordinate) → bbox derived + polygon kept.
+        b = adapter.to_box({"label": "t", "score": 0.5,
+                            "polygon_points": [0, 0, 10, 0, 10, 10, 0, 10]})
+        assert b.coordinate == [0, 0, 10, 10]
+        assert b.polygon_points == [[0, 0], [10, 0], [10, 10], [0, 10]]
+        # Degenerate/too-small polygon dropped as a polygon, but the flat
+        # values still yield a bbox (4 numbers are treated as a coordinate).
+        b = adapter.to_box({"label": "t", "score": 0.5,
+                            "polygon_points": [0, 0, 1, 1]})
+        assert b.polygon_points is None
+        assert b.coordinate == [0, 0, 1, 1]
+        # Explicit coordinate always wins over the polygon fallback.
+        b = adapter.to_box({"label": "t", "score": 0.5,
+                            "coordinate": [0, 0, 3, 3],
+                            "polygon_points": [0, 0, 10, 0, 10, 10, 0, 10]})
+        assert b.coordinate == [0, 0, 3, 3]
+        assert b.polygon_points == [[0, 0], [10, 0], [10, 10], [0, 10]]
+    test("BoxAdapter robustness: malformed input never raises, valid output",
+         t_mistral_adapter_robustness)
+
+    from api_compat.mistral_ocr_api.schema import (
+        PaddleXOCRResponse, PaddleXMetadata, OCRUsageInfo,
+    )
+    from mistralai.client import models
+
+    def t_mistral_paddlex_container():
+        import numpy as np
+        raw_boxes = [
+            {"label": "text", "cls_id": 20, "score": 0.95,
+             "coordinate": [10, 20, 100, 200], "order": 0},
+            {"label": "table", "cls_id": 19, "score": 0.72,
+             "coordinate": [0, 0, 50, 50], "order": 1},
+        ]
+        adapter = box_adapter_registry.get("PP-DocLayoutV3")
+        boxes = [adapter.to_box(b) for b in raw_boxes]
+        img = np.zeros((300, 300, 3), dtype=np.uint8)
+        page = converter.convert(
+            boxes, img,
+            ConvertOptions(
+                include_scores=True, include_native_metadata=True, threshold=0.5,
+            ),
+        )
+        resp = PaddleXOCRResponse(
+            model="PP-DocLayoutV3", pages=[page],
+            usage_info=OCRUsageInfo(pages_processed=1, doc_size_bytes=10),
+            paddlex=PaddleXMetadata(
+                model="PP-DocLayoutV3", threshold=0.5,
+                pages=[page._paddlex_page_metadata],
+            ),
+        )
+        out = resp.model_dump(mode="json", by_alias=True, exclude_none=True)
+        assert "paddlex" in out
+        assert len(out["pages"]) == 1
+        assert len(out["pages"][0]["blocks"]) == 2
+        b0 = out["paddlex"]["pages"][0]["boxes"][0]
+        assert b0["label"] == "text" and b0["cls_id"] == 20 and b0["score"] == 0.95
+        # Stock client must parse our response, drop paddlex, keep blocks+conf
+        stock = models.OCRResponse.model_validate(out)
+        assert len(stock.pages[0].blocks) == 2
+        assert stock.pages[0].blocks[0].confidence_scores.block_type_confidence_score == 0.95
+        assert not hasattr(stock, "paddlex")
+    test("Mistral PaddleXOCRResponse: paddlex container + stock backward-compat",
+         t_mistral_paddlex_container)
+
+    from api_compat.mistral_ocr_api.schema import (
+        PaddleXOCRPageObject,
+    )
+
+    def t_mistral_native_labels():
+        """include_native_labels=true preserves the lossy-collapsed label on
+        each block (chart→image, number→text) alongside the stock type."""
+        import numpy as np
+        raw_boxes = [
+            # label "chart" must collapse to type "image" but keep label "chart"
+            {"label": "chart", "cls_id": 11, "score": 0.61,
+             "coordinate": [0, 0, 50, 50], "order": 0},
+            # label "number" must collapse to type "text" but keep label "number"
+            {"label": "number", "cls_id": 22, "score": 0.70,
+             "coordinate": [60, 60, 90, 90], "order": 1},
+            # label "figure_title" → type "title" but keep label
+            {"label": "figure_title", "cls_id": 7, "score": 0.88,
+             "coordinate": [0, 100, 100, 120], "order": 2},
+        ]
+        adapter = box_adapter_registry.get("PP-DocLayoutV3")
+        boxes = [adapter.to_box(b) for b in raw_boxes]
+        img = np.zeros((300, 300, 3), dtype=np.uint8)
+
+        # 1) Default (no native labels): blocks are stock DTOs, no label attr.
+        page_default = converter.convert(boxes, img, ConvertOptions())
+        assert type(page_default) is not PaddleXOCRPageObject  # stock page class
+        assert not hasattr(page_default.blocks[0], "label")
+        assert page_default.blocks[0].type == "image"  # chart→image still
+        assert page_default.blocks[1].type == "text"   # number→text still
+
+        # 2) With include_native_labels: native label preserved on each block.
+        page = converter.convert(
+            boxes, img, ConvertOptions(include_native_labels=True),
+        )
+        assert type(page) is PaddleXOCRPageObject
+        b0, b1, b2 = page.blocks[0], page.blocks[1], page.blocks[2]
+        assert b0.type == "image" and b1.type == "text" and b2.type == "title"
+        # native label is preserved (the lossy-collapse prevention)
+        assert b0.label == "chart"
+        assert b1.label == "number"
+        assert b2.label == "figure_title"
+
+        # 3) Serialize through the response model — labels survive the wire.
+        resp = PaddleXOCRResponse(
+            model="PP-DocLayoutV3", pages=[page],
+            usage_info=OCRUsageInfo(pages_processed=1, doc_size_bytes=10),
+        )
+        out = resp.model_dump(mode="json", by_alias=True, exclude_none=True)
+        blocks = out["pages"][0]["blocks"]
+        assert blocks[0]["type"] == "image" and blocks[0]["label"] == "chart"
+        assert blocks[1]["type"] == "text" and blocks[1]["label"] == "number"
+        assert blocks[2]["type"] == "title" and blocks[2]["label"] == "figure_title"
+        assert all("label" in b for b in blocks)
+
+        # 4) A stock client parsing this still sees valid blocks (label ignored).
+        stock = models.OCRResponse.model_validate(out)
+        assert len(stock.pages[0].blocks) == 3
+        assert stock.pages[0].blocks[0].type == "image"
+        assert not hasattr(stock.pages[0].blocks[0], "label")
+    test("Mistral native labels: type kept, lossy label preserved per block",
+         t_mistral_native_labels)
+
     # ─── Summary ───────────────────────────────────────────────────────
     print(f"\n{'=' * 50}")
     print(f"RESULTS: {passed} passed, {failed} failed")

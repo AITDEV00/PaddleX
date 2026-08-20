@@ -35,6 +35,7 @@ from ..config import (
     MODEL_DEVICE_ID,
     MODEL_NAME,
     MODEL_PRECISION,
+    MODEL_THRESHOLD,
     PIPELINE_DEPTH,
     PRE_POST_POOL_SIZE,
 )
@@ -147,6 +148,7 @@ class DirectBackend(InferenceBackend):
         self._task_counter = 0
         self._task_counter_lock = threading.Lock()
         self._pre_post_pool: ThreadPoolExecutor | None = None
+        self._default_threshold: float | dict | None = MODEL_THRESHOLD
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def _get_pre_post_pool(self) -> ThreadPoolExecutor:
@@ -182,7 +184,7 @@ class DirectBackend(InferenceBackend):
 
     def shutdown(self) -> None:
         """Signal the inference thread to stop (best-effort)."""
-        self._task_queue.put((None, None, None, 0.0))
+        self._task_queue.put((None, None, None, 0.0, None, None))
         if self._infer_thread is not None:
             self._infer_thread.join(timeout=5)
         if self._pre_post_pool is not None:
@@ -272,18 +274,37 @@ class DirectBackend(InferenceBackend):
 
     @staticmethod
     def _run_postprocessing(
-        predictor: Any, preds_list: list[dict], datas: list[dict]
+        predictor: Any,
+        preds_list: list[dict],
+        datas: list[dict],
+        threshold: float | dict | None = None,
+        layout_kwargs: dict[str, Any] | None = None,
     ) -> list[list[dict]]:
-        """Run post-processing (CPU) to produce layout boxes."""
+        """Run post-processing (CPU) to produce layout boxes.
+
+        ``threshold`` and ``layout_kwargs`` are per-request overrides; any
+        ``None`` value falls back to the deployment default on the predictor.
+        """
+        threshold = threshold if threshold is not None else predictor.threshold
+        layout_kwargs = layout_kwargs or {}
         boxes = predictor.post_op(
             preds_list,
             datas,
-            threshold=predictor.threshold,
-            layout_nms=predictor.layout_nms,
-            layout_unclip_ratio=predictor.layout_unclip_ratio,
-            layout_merge_bboxes_mode=predictor.layout_merge_bboxes_mode,
-            layout_shape_mode="auto",
-            filter_overlap_boxes=True,
+            threshold=threshold,
+            layout_nms=layout_kwargs.get(
+                "layout_nms", predictor.layout_nms
+            ),
+            layout_unclip_ratio=layout_kwargs.get(
+                "layout_unclip_ratio", predictor.layout_unclip_ratio
+            ),
+            layout_merge_bboxes_mode=layout_kwargs.get(
+                "layout_merge_bboxes_mode",
+                predictor.layout_merge_bboxes_mode,
+            ),
+            layout_shape_mode=layout_kwargs.get("layout_shape_mode", "auto"),
+            filter_overlap_boxes=layout_kwargs.get(
+                "filter_overlap_boxes", True
+            ),
             skip_order_labels=None,
         )
         return boxes if isinstance(boxes, list) else [boxes]
@@ -310,7 +331,13 @@ class DirectBackend(InferenceBackend):
             pre_future = pool.submit(self._run_preprocessing, predictor, images)
             batch_inputs, datas = pre_future.result()
             preds_list = self._run_gpu_inference(predictor, batch_inputs)
-            boxes_list = self._run_postprocessing(predictor, preds_list, datas)
+            # Each task carries its own threshold/layout overrides; use the
+            # first task's (batching is only meaningful when they agree).
+            _thr = batch[0][4]
+            _lw = batch[0][5]
+            boxes_list = self._run_postprocessing(
+                predictor, preds_list, datas, _thr, _lw
+            )
 
             if len(boxes_list) != n:
                 raise RuntimeError(
@@ -318,11 +345,11 @@ class DirectBackend(InferenceBackend):
                     f"for {n} images"
                 )
 
-            for i, (_task_id, _img, future, _t) in enumerate(batch):
+            for i, (_task_id, _img, future, _t, _thr2, _lw2) in enumerate(batch):
                 future.set_result(boxes_list[i])
         except Exception as e:
             logger.exception("Batch inference failed (%d images)", n)
-            for _task_id, _img, future, _t in batch:
+            for _task_id, _img, future, _t, _thr2, _lw2 in batch:
                 if not future.done():
                     future.set_exception(e)
         finally:
@@ -360,11 +387,11 @@ class DirectBackend(InferenceBackend):
                         f"Post-processing returned {len(boxes_list)} results "
                         f"for {n} images"
                     )
-                for i, (_task_id, _img, future, _t) in enumerate(batch):
+                for i, (_task_id, _img, future, _t, _thr, _lw) in enumerate(batch):
                     future.set_result(boxes_list[i])
             except Exception as e:
                 logger.exception("Post-processing failed (%d images)", n)
-                for _task_id, _img, future, _t in batch:
+                for _task_id, _img, future, _t, _thr, _lw in batch:
                     if not future.done():
                         future.set_exception(e)
             finally:
@@ -376,8 +403,10 @@ class DirectBackend(InferenceBackend):
                         n, elapsed * 1000, elapsed,
                     )
 
+        _thr = batch[0][4] if batch else None
+        _lw = batch[0][5] if batch else None
         pool.submit(
-            self._run_postprocessing, predictor, preds_list, datas
+            self._run_postprocessing, predictor, preds_list, datas, _thr, _lw
         ).add_done_callback(_on_post_done)
 
     # ── inference worker loop ────────────────────────────────────────────────
@@ -530,8 +559,19 @@ class DirectBackend(InferenceBackend):
             self._resolve_batch(*prev_post)
 
     # ── InferenceBackend interface ───────────────────────────────────────────
-    async def detect(self, image: np.ndarray) -> list[dict[str, Any]]:
-        """Submit an image to the inference thread and await the result."""
+    async def detect(
+        self,
+        image: np.ndarray,
+        *,
+        threshold: float | dict | None = None,
+        **layout_kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Submit an image to the inference thread and await the result.
+
+        ``threshold`` and ``layout_kwargs`` are per-request overrides for the
+        layout post-processing stage; ``None`` values fall back to the
+        deployment defaults baked into the predictor config.
+        """
         _log = is_latency_logging_enabled()
         t_sem_acquire = time.perf_counter() if _log else 0.0
 
@@ -542,12 +582,16 @@ class DirectBackend(InferenceBackend):
                     '{"event":"latency","stage":"semaphore_wait","wait_s":%.6f}',
                     sem_wait,
                 )
+            if threshold is None:
+                threshold = self._default_threshold
 
             task_id = self._next_task_id()
             future: Future = Future()
-            t_enqueue = time.perf_counter()
+            t_enqueue = time.perf_counter() if _log else 0.0
             t_infer_start = t_enqueue if _log else 0.0
-            self._task_queue.put((task_id, image, future, t_enqueue))
+            self._task_queue.put(
+                (task_id, image, future, t_enqueue, threshold, layout_kwargs)
+            )
 
             try:
                 boxes = await asyncio.wrap_future(

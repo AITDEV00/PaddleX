@@ -62,8 +62,19 @@ class TritonBackend(InferenceBackend):
             pass
 
     # ── InferenceBackend interface ───────────────────────────────────────────
-    async def detect(self, image: np.ndarray) -> list[dict[str, Any]]:
-        """Send image to Triton via gRPC; Triton handles batching."""
+    async def detect(
+        self,
+        image: np.ndarray,
+        *,
+        threshold: float | dict | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Send image to Triton via gRPC; Triton handles batching.
+
+        Note: Triton's server-side post-processing currently uses its own
+        configured threshold; per-request ``threshold``/layout overrides are
+        accepted for interface compatibility but not yet applied on the wire.
+        """
         from .. import triton_client
 
         async with self.semaphore:

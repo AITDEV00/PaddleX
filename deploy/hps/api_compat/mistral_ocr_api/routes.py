@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from .._core.inference import state
-from .schema import OCRRequest, OCRResponse
+from .schema import PaddleXOCRRequest, PaddleXOCRResponse
 from .service import process_ocr
 
 logger = logging.getLogger("hps_api")
@@ -19,9 +19,15 @@ logger = logging.getLogger("hps_api")
 router = APIRouter(tags=["ocr"])
 
 
-@router.post("/v1/ocr", response_model=OCRResponse)
-async def ocr(request: OCRRequest) -> OCRResponse:
-    """Run OCR/layout detection on a document and return a Mistral response."""
+@router.post("/v1/ocr", response_model=PaddleXOCRResponse, response_model_exclude_none=True)
+async def ocr(request: PaddleXOCRRequest) -> PaddleXOCRResponse:
+    """Run OCR/layout detection on a document and return a Mistral response.
+
+    Accepts all stock Mistral OCR fields plus the PaddleX-native extensions
+    (``threshold``, ``layout_*``, ``include_paddlex_metadata``) defined on
+    ``PaddleXOCRRequest``.  The response adds an optional top-level
+    ``paddlex`` container when ``include_paddlex_metadata`` is set.
+    """
     if not state.ready:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
