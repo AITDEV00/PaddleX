@@ -261,19 +261,17 @@ drop; it does not affect any conclusion above.
    per-request value does not.
 2. Is LiteLLM able to forward unknown top-level fields to the PaddleX backend, or does the extra
    parameter need to be declared on the gateway side too?
-   **→ Partly answered, now measured (2026-08-20 via `litellm.ecouncil.ae`, key `sk-05132025`):**
-   the backend declares and honours the extra fields (`threshold`, `layout_*`,
-   `include_paddlex_metadata`, `include_native_labels`) — verified directly against the backend.
-   **Through the gateway**, however, LiteLLM strips the PaddleX-extension top-level fields because
-   they are not in the stock Mistral `/v1/ocr` request schema:
-   - `confidence_scores_granularity="block"` (a stock Mistral field) **is forwarded** → 16/16 blocks
-     carry scores.
-   - `include_native_labels=true` (extension) is **dropped** → 0/16 blocks carry `label`.
-   - `threshold` (extension) is **dropped** → block count stays 16 at 0.3/0.5/0.7/0.8/0.99.
-   So the drop is at the gateway, **not** the backend. To expose `threshold`/`include_native_labels`
-   through the gateway, these fields must be **declared / allow-listed on the LiteLLM side** (e.g.
-   passthrough allow-list on the `PP-DocLayoutV3` route). The backend already supports them; no
-   backend change is required.
+   **→ RESOLVED (2026-08-20).** Initially LiteLLM stripped the PaddleX-extension top-level fields
+   (they are not in the stock Mistral `/v1/ocr` request schema), while forwarding the stock
+   `confidence_scores_granularity` field. After allow-listing the extension fields on the LiteLLM
+   gateway (`litellm.ecouncil.ae`, key `sk-05132025`), **all three now forward and behave exactly as
+   the direct backend**:
+   - `include_native_labels=true` → 16/16 blocks carry the native `label`
+     (`paragraph_title`→`title`, `number`→`text`, `header_image`→`image`).
+   - `confidence_scores_granularity="block"` → 16/16 blocks carry scores (title 0.796, …).
+   - `threshold` → box count follows the value: 16 @0.3, 16 @0.5, 9 @0.7, 3 @0.8, 3 @0.9,
+     `None` @0.99 — identical to the local backend.
+   The backend required **no change**; the fix was gateway-side allow-listing.
 3. Can extra fields be added to the block objects without breaking other consumers of this endpoint who
    parse it as strict Mistral `OCRResponse`?
    **→ Yes, and now done.** Extra top-level fields (like the existing `paddlex` container) are already
